@@ -1,0 +1,33 @@
+services:
+  stage-0:
+    container_name: genderize
+    build: ./backend/stage-0
+    restart: unless-stopped
+    ports:
+      - "8059:8059"
+    networks:
+      - hng14
+
+  # stage-1:
+  #   build: ./backend/stage-1
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8060:8060"
+  #   environment:
+  #     - PORT=8060
+  #   networks:
+  #     - hng14
+
+  # stage-2:
+  #   build: ./backend/stage-2
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8061:8061"
+  #   environment:
+  #     - PORT=8061
+  #   networks:
+  #     - hng14
+
+networks:
+  hng14:
+    driver: bridge

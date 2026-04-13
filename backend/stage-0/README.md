@@ -35,7 +35,7 @@ GET /api/classify?name={name}
 
 ```bash
 go run main.go
-curl "http://localhost:8080/api/classify?name=john"
+curl "http://localhost:8059/api/classify?name=john"
 ```
 
 ## Run with Docker
