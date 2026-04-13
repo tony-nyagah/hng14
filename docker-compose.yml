@@ -1,5 +1,5 @@
 services:
-  stage-0:
+  backend-stage-0:
     container_name: genderize
     build: ./backend/stage-0
     restart: unless-stopped
