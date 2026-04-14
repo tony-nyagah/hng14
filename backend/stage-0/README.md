@@ -2,6 +2,17 @@
 
 Calls the [Genderize API](https://genderize.io) and returns a structured classification result.
 
+## Submission Details
+
+- API Base URL: `https://hng14.nyagah.me/backend/stage-0`
+- GitHub Repository: `https://github.com/tony-nyagah/hng14`
+
+Live test endpoint:
+
+```bash
+curl "https://hng14.nyagah.me/backend/stage-0/api/classify?name=john"
+```
+
 ## Endpoint
 
 ```
