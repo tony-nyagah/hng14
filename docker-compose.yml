@@ -1,33 +1,36 @@
 services:
-  backend-stage-0:
-    container_name: genderize
-    build: ./backend/stage-0
+  traefik:
+    image: traefik:v3.1
     restart: unless-stopped
     ports:
-      - "8059:8059"
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/traefik.yml:/traefik.yml:ro
+      - letsencrypt:/letsencrypt
     networks:
-      - hng14
+      - proxy
 
-  # stage-1:
-  #   build: ./backend/stage-1
-  #   restart: unless-stopped
-  #   ports:
-  #     - "8060:8060"
-  #   environment:
-  #     - PORT=8060
-  #   networks:
-  #     - hng14
-
-  # stage-2:
-  #   build: ./backend/stage-2
-  #   restart: unless-stopped
-  #   ports:
-  #     - "8061:8061"
-  #   environment:
-  #     - PORT=8061
-  #   networks:
-  #     - hng14
+  stage-0:
+    build: ./backend/stage-0
+    restart: unless-stopped
+    environment:
+      - PORT=8059
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.stage-0.rule=Host(`hng14.nyagah.me`) && PathPrefix(`/backend/stage-0`)"
+      - "traefik.http.routers.stage-0.entrypoints=websecure"
+      - "traefik.http.routers.stage-0.tls.certresolver=letsencrypt"
+      - "traefik.http.middlewares.stage-0-strip.stripprefix.prefixes=/backend/stage-0"
+      - "traefik.http.routers.stage-0.middlewares=stage-0-strip"
+      - "traefik.http.services.stage-0.loadbalancer.server.port=8080"
 
 networks:
-  hng14:
-    driver: bridge
+  proxy:
+    external: false
+
+volumes:
+  letsencrypt:

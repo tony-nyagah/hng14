@@ -12,9 +12,9 @@ Explainer video: link: [link](https://www.tiktok.com/@hnginternship/video/762684
 Call the [Genderize API](https://genderize.io/documentation) using a name query parameter, process the raw response, and return a structured result.
 
 Processing rules:
-- Extract gender, probability, and count from the API response. Rename count to sample_size.
-- Compute is_confident: true when probability >= 0.7 AND sample_size >= 100. Both conditions must pass. If either fails, it's false.
-- Generate processed_at on every request. UTC, ISO 8601. Not hardcoded.
+- Extract `gender`, `probability`, and `count` from the API response. Rename `count` to `sample_size`.
+- Compute `is_confident`: true when `probability >= 0.7` AND `sample_size >= 100`. Both conditions must pass. If either fails, it's false.
+- Generate `processed_at` on every request. UTC, ISO 8601. Not hardcoded.
 
 The endpoint you're building:
 
