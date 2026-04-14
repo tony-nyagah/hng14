@@ -1,6 +1,6 @@
 services:
   traefik:
-    image: traefik:v3.1
+    image: traefik:latest
     restart: unless-stopped
     ports:
       - "80:80"
@@ -8,7 +8,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./traefik/traefik.yml:/traefik.yml:ro
-      - letsencrypt:/letsencrypt
+      - ./traefik/acme.json:/letsencrypt/acme.json
     networks:
       - proxy
 
@@ -31,6 +31,3 @@ services:
 networks:
   proxy:
     external: false
-
-volumes:
-  letsencrypt:
