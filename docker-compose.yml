@@ -27,7 +27,7 @@ services:
       - "traefik.http.routers.stage-0.tls.certresolver=letsencrypt"
       - "traefik.http.middlewares.stage-0-strip.stripprefix.prefixes=/backend/stage-0"
       - "traefik.http.routers.stage-0.middlewares=stage-0-strip"
-      - "traefik.http.services.stage-0.loadbalancer.server.port=8080"
+      - "traefik.http.services.stage-0.loadbalancer.server.port=8059"
 
 networks:
   proxy:
