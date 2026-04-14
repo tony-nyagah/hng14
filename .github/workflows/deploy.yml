@@ -5,43 +5,12 @@ on:
     branches:
       - main
   workflow_dispatch:
-    inputs:
-      stage:
-        description: "Stage to deploy (e.g. stage-0). Leave empty to auto-detect from changed files."
-        required: false
 
 jobs:
-  detect-changes:
-    runs-on: ubuntu-latest
-    outputs:
-      stages: ${{ steps.detect.outputs.stages }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-
-      - name: Detect changed stages
-        id: detect
-        run: |
-          if [ -n "${{ github.event.inputs.stage }}" ]; then
-            echo "stages=[\"${{ github.event.inputs.stage }}\"]" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          CHANGED=$(git diff --name-only HEAD~1 HEAD | grep '^backend/' | cut -d'/' -f2 | sort -u | jq -R . | jq -sc .)
-          echo "stages=$CHANGED" >> $GITHUB_OUTPUT
-
   deploy:
-    needs: detect-changes
     runs-on: ubuntu-latest
-    if: ${{ needs.detect-changes.outputs.stages != '[]' && needs.detect-changes.outputs.stages != '' }}
-    strategy:
-      matrix:
-        stage: ${{ fromJson(needs.detect-changes.outputs.stages) }}
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Deploy ${{ matrix.stage }}
+      - name: Deploy
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.HETZNER_HOST }}
@@ -50,4 +19,4 @@ jobs:
           script: |
             cd /root/hng14
             git pull origin main
-            docker compose up -d --build ${{ matrix.stage }}
+            docker compose up -d --build
