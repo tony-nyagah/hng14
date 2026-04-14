@@ -48,6 +48,6 @@ jobs:
           username: ${{ secrets.HETZNER_USER }}
           key: ${{ secrets.HETZNER_SSH_KEY }}
           script: |
-            cd ~/hng
+            cd /root/hng14
             git pull origin main
             docker compose up -d --build ${{ matrix.stage }}
