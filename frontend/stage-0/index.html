@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Todo Card</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <article data-testid="test-todo-card">
+      <!-- Header: title + priority -->
+      <div class="card-header">
+        <h2 data-testid="test-todo-title">Design the Landing Page</h2>
+        <span
+          data-testid="test-todo-priority"
+          class="priority-high"
+          aria-label="Priority: High"
+          >High</span
+        >
+      </div>
+
+      <!-- Description -->
+      <p data-testid="test-todo-description">
+        Create wireframes and high-fidelity mockups for the new product landing
+        page. Coordinate with the marketing team for final copy and imagery.
+      </p>
+
+      <hr class="divider" />
+
+      <!-- Due date + time remaining -->
+      <div class="card-meta">
+        <div class="meta-block">
+          <span class="meta-label">Due date</span>
+          <time
+            data-testid="test-todo-due-date"
+            id="due-date-display"
+            datetime="2026-04-19T23:59:00"
+            >—</time
+          >
+        </div>
+        <div class="meta-block">
+          <span class="meta-label">Time remaining</span>
+          <time
+            data-testid="test-todo-time-remaining"
+            id="time-remaining-display"
+            datetime="2026-04-19T23:59:00"
+            >—</time
+          >
+        </div>
+      </div>
+
+      <!-- Status + checkbox -->
+      <div class="status-row">
+        <span
+          data-testid="test-todo-status"
+          class="status-in-progress"
+          aria-label="Status: In Progress"
+          >In Progress</span
+        >
+
+        <label class="checkbox-wrapper" for="complete-toggle">
+          <input
+            type="checkbox"
+            id="complete-toggle"
+            data-testid="test-todo-complete-toggle"
+            aria-label="Mark task as complete"
+          />
+          <span class="checkbox-label">Mark complete</span>
+        </label>
+      </div>
+
+      <!-- Tags -->
+      <div class="tags-section">
+        <span class="meta-label">Categories</span>
+        <ul data-testid="test-todo-tags" role="list">
+          <li data-testid="test-todo-tag-design">Design</li>
+          <li data-testid="test-todo-tag-ui">UI</li>
+          <li data-testid="test-todo-tag-frontend">Frontend</li>
+        </ul>
+      </div>
+
+      <!-- Actions -->
+      <div class="card-actions">
+        <button data-testid="test-todo-edit-button" aria-label="Edit task">
+          Edit
+        </button>
+        <button data-testid="test-todo-delete-button" aria-label="Delete task">
+          Delete
+        </button>
+      </div>
+    </article>
+
+    <script src="script.js"></script>
+  </body>
+</html>
