@@ -29,21 +29,6 @@ services:
       - "traefik.http.routers.stage-0.middlewares=stage-0-strip"
       - "traefik.http.services.stage-0.loadbalancer.server.port=8059"
     
-  frontend-stage-0:
-    container_name: task-card
-    build: ./frontend/stage-0/task-card
-    restart: unless-stopped
-    networks:
-      - proxy
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.frontend-stage-0.rule=Host(`hng14.nyagah.me`) && PathPrefix(`/frontend/stage-0`)"
-      - "traefik.http.routers.frontend-stage-0.entrypoints=websecure"
-      - "traefik.http.routers.frontend-stage-0.tls.certresolver=letsencrypt"
-      - "traefik.http.middlewares.frontend-stage-0-strip.stripprefix.prefixes=/frontend/stage-0"
-      - "traefik.http.routers.frontend-stage-0.middlewares=frontend-stage-0-strip"
-      - "traefik.http.services.frontend-stage-0.loadbalancer.server.port=4173"
-
 networks:
   proxy:
     external: false
