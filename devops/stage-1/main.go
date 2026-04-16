@@ -4,18 +4,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type UserInfo struct {
-	Name   string `json:"name"`
-	Email  string `json:"email"`
-	Github string `json:"github"`
-}
-
-var myInfo = UserInfo{
-	Name:   "Antony Nyagah",
-	Email:  "tony.m.nyagah@gmail.com",
-	Github: "https://github.com/tony-nyagah",
-}
-
 func indexHandler(c *gin.Context) {
 	c.JSON(200, gin.H{"message": "API is running"})
 }
@@ -25,7 +13,11 @@ func healthHandler(c *gin.Context) {
 }
 
 func infoHandler(c *gin.Context) {
-	c.JSON(200, myInfo)
+	c.JSON(200, gin.H{
+		"name":   "Antony Nyagah",
+		"email":  "tony.m.nyagah@gmail.com",
+		"github": "https://github.com/tony-nyagah",
+	})
 }
 
 func main() {
