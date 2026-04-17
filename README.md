@@ -11,7 +11,8 @@ My solutions to the [HNG14](https://hng.tech) internship tasks, organized by tra
 
 | Stage | Description | Live | Test Endpoint |
 | ----- | ----------- | ---- | ------------- |
-| 0 | Name classification API (gender, age, nationality) | [hng14.nyagah.me/backend/stage-0](https://hng14.nyagah.me/backend/stage-0) | [/api/classify?name=john](https://hng14.nyagah.me/backend/stage-0/api/classify?name=john) |
+| 0 | Gender classification API | [hng14.nyagah.me/api/classify](https://hng14.nyagah.me/api/classify?name=john) | `GET /api/classify?name=john` |
+| 1 | Profile enrichment API (gender, age, nationality) | [hng14.nyagah.me/api/profiles](https://hng14.nyagah.me/api/profiles) | `POST /api/profiles` |
 
 ## Frontend
 
@@ -30,7 +31,8 @@ My solutions to the [HNG14](https://hng.tech) internship tasks, organized by tra
 
 ```
 backend/
-  stage-0/   Go API — name classification
+  stage-0/   Go API — gender classification
+  stage-1/   Go API — profile enrichment (gender, age, nationality)
 frontend/
   stage-0/
     task-card/   Vue 3 todo card component
