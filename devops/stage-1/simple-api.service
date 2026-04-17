@@ -1,0 +1,15 @@
+[Unit]
+Description=Simple API (Go/Gin)
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/simple-api
+ExecStart=/home/ubuntu/simple-api/simple-api
+Restart=always
+RestartSec=5
+Environment=GIN_MODE=release
+
+[Install]
+WantedBy=multi-user.target

@@ -23,7 +23,7 @@ func infoHandler(c *gin.Context) {
 func main() {
 	r := gin.Default()
 	r.GET("/", indexHandler)
-	r.GET("/info", infoHandler)
+	r.GET("/me", infoHandler)
 	r.GET("/health", healthHandler)
-	r.Run()
+	r.Run(":8080")
 }
