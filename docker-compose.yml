@@ -1,5 +1,5 @@
 services:
-  stage-0:
+  backend-stage-0:
     build: ./backend/stage-0
     restart: unless-stopped
     ports:
@@ -9,7 +9,7 @@ services:
     networks:
       - hng14
 
-  stage-1:
+  backend-stage-1:
     build: ./backend/stage-1
     restart: unless-stopped
     ports:

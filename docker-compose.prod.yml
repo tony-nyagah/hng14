@@ -1,18 +1,29 @@
 services:
+  traefik:
+    image: traefik:v3.0
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /root/traefik/traefik.yml:/traefik.yml:ro
+      - /root/traefik/acme.json:/letsencrypt/acme.json
+    networks:
+      - web
+
   stage-0:
     image: ghcr.io/tony-nyagah/hng14/stage-0:latest
     restart: unless-stopped
     environment:
       - PORT=8059
     networks:
-      - dokploy-network
+      - web
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.stage-0.rule=Host(`hng14.nyagah.me`) && PathPrefix(`/backend/stage-0`)"
+      - "traefik.http.routers.stage-0.rule=Host(`hng14.nyagah.me`) && PathPrefix(`/api/classify`)"
       - "traefik.http.routers.stage-0.entrypoints=websecure"
       - "traefik.http.routers.stage-0.tls.certresolver=letsencrypt"
-      - "traefik.http.middlewares.stage-0-strip.stripprefix.prefixes=/backend/stage-0"
-      - "traefik.http.routers.stage-0.middlewares=stage-0-strip"
       - "traefik.http.services.stage-0.loadbalancer.server.port=8059"
 
   stage-1:
@@ -21,28 +32,14 @@ services:
     environment:
       - PORT=8060
     networks:
-      - dokploy-network
+      - web
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.stage-1.rule=Host(`hng14.nyagah.me`) && PathPrefix(`/backend/stage-1`)"
+      - "traefik.http.routers.stage-1.rule=Host(`hng14.nyagah.me`) && PathPrefix(`/api/profiles`)"
       - "traefik.http.routers.stage-1.entrypoints=websecure"
       - "traefik.http.routers.stage-1.tls.certresolver=letsencrypt"
-      - "traefik.http.middlewares.stage-1-strip.stripprefix.prefixes=/backend/stage-1"
-      - "traefik.http.routers.stage-1.middlewares=stage-1-strip"
       - "traefik.http.services.stage-1.loadbalancer.server.port=8060"
 
-  # frontend:
-  #   image: ghcr.io/tony-nyagah/hng14/frontend:latest
-  #   restart: unless-stopped
-  #   networks:
-  #     - dokploy-network
-  #   labels:
-  #     - "traefik.enable=true"
-  #     - "traefik.http.routers.frontend.rule=Host(`hng14.nyagah.me`)"
-  #     - "traefik.http.routers.frontend.entrypoints=websecure"
-  #     - "traefik.http.routers.frontend.tls.certresolver=letsencrypt"
-  #     - "traefik.http.services.frontend.loadbalancer.server.port=3000"
-
 networks:
-  dokploy-network:
+  web:
     external: true
