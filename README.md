@@ -19,6 +19,13 @@ My solutions to the [HNG14](https://hng.tech) internship tasks, organized by tra
 | ----- | ----------- | ---- | ------ |
 | 0 | Neubrutalist todo item card | [hng14-taskcard.vercel.app](https://hng14-taskcard.vercel.app/) | [frontend/stage-0/task-card](https://github.com/tony-nyagah/hng14/tree/main/frontend/stage-0/task-card) |
 
+## DevOps
+
+| Stage | Description | Live Base URL | Repo Link |
+| ----- | ----------- | ------------- | --------- |
+| 0 | Linux server setup | [https://devops.nyagah.me/](https://devops.nyagah.me/) | [devops/stage-0](https://github.com/tony-nyagah/hng14/tree/main/devops/stage-0) |
+| 1 | Simple API deployment | [http://ec2-52-91-20-85.compute-1.amazonaws.com](http://ec2-52-91-20-85.compute-1.amazonaws.com) | [devops/stage-1](https://github.com/tony-nyagah/hng14/tree/main/devops/stage-1) |
+
 ## Repository structure
 
 ```
@@ -29,4 +36,5 @@ frontend/
     task-card/   Vue 3 todo card component
 devops/
   stage-0/   Linux server setup
+  stage-1/   Simple API deployment
 ```

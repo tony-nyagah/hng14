@@ -21,7 +21,7 @@ All endpoints return:
 
 ### Examples
 
-```
+```json
 GET /
 {"message":"API is running"}
 
