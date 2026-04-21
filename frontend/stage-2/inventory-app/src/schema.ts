@@ -23,7 +23,7 @@ export const invoiceSchema = z.object({
     paymentTerms: z.coerce.number(),
     description: z.string().min(1, "can't be empty"),
     items: z.array(itemSchema).min(1, "An item must be added"),
-    status: z.enum(['draft', 'pending', 'paid']).default('pending')
+    status: z.enum(['draft', 'pending', 'paid'])
 });
 
 export type InvoiceFormData = z.infer<typeof invoiceSchema>;

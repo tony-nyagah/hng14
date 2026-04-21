@@ -20,7 +20,7 @@ export default function InvoiceForm({ isOpen, onClose, invoiceToEdit }: InvoiceF
 
     // Set up React Hook Form with Zod validation
     const { register, control, handleSubmit, reset, getValues, formState: { errors } } = useForm<InvoiceFormData>({
-        resolver: zodResolver(invoiceSchema),
+        resolver: zodResolver(invoiceSchema as any),
         defaultValues: {
             senderAddress: { street: '', city: '', postCode: '', country: '' },
             clientName: '',
