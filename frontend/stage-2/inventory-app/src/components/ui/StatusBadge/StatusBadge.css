@@ -1,0 +1,48 @@
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 104px;
+    height: 40px;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: -0.25px;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+/* Paid */
+.status-paid {
+    background-color: var(--color-paid-bg);
+    color: var(--color-paid);
+}
+
+.status-paid .status-dot {
+    background-color: var(--color-paid);
+}
+
+/* Pending */
+.status-pending {
+    background-color: var(--color-pending-bg);
+    color: var(--color-pending);
+}
+
+.status-pending .status-dot {
+    background-color: var(--color-pending);
+}
+
+/* Draft */
+.status-draft {
+    background-color: var(--color-draft-bg);
+    color: var(--color-draft);
+}
+
+.status-draft .status-dot {
+    background-color: var(--color-draft);
+}
