@@ -1,75 +1,67 @@
-# React + TypeScript + Vite
+# Invoice Management Application
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A full-stack, responsive Invoice Management Application built with React and Vanilla CSS. This project was developed to strictly adhere to Figma design specifications as part of the HNG14 Stage 2 frontend task.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+* **Full CRUD Functionality:** Create, Read, Update, and Delete invoices.
+* **Persistent State Management:** Invoice data and user preferences are saved locally using `localStorage`.
+* **Theme Toggling:** Switch seamlessly between Light and Dark mode.
+* **Form Validation:** Robust form handling and strict validation using `react-hook-form` and `zod`.
+* **Dynamic Calculations:** Invoice totals update in real-time as item quantities or prices are adjusted.
+* **Save as Draft:** Bypass strict validation to save partial invoices as drafts.
+* **Filtering:** Filter invoices by their current status (Draft, Pending, Paid) via a custom dropdown.
+* **Responsive Layout:** Optimized for Mobile, Tablet, and Desktop screens, featuring a dynamic slide-out form drawer.
 
-## React Compiler
+## Technology Stack
 
-The React Compiler is enabled on this template. See [this documentation](https://react.dev/learn/react-compiler) for more information.
+* **Core:** React, TypeScript, Vite
+* **Styling:** Vanilla CSS (Custom properties for theming, responsive media queries)
+* **Routing:** React Router DOM
+* **Forms & Validation:** React Hook Form, Zod
+* **Icons:** Lucide React
+* **Utilities:** date-fns (date formatting), uuid (unique IDs)
+* **Development/Testing:** Faker.js (mock data generation)
 
-Note: This will impact Vite dev & build performances.
+## Getting Started
 
-## Expanding the ESLint configuration
+### Prerequisites
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+Ensure you have [Node.js](https://nodejs.org/) and [Bun](https://bun.sh/) installed.
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+### Installation
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+1. Clone the repository and navigate to the project directory:
+   ```bash
+   cd inventory-app
+   ```
+2. Install the dependencies:
+   ```bash
+   bun install
+   ```
+3. Start the development server:
+   ```bash
+   bun run dev
+   ```
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+### Generating Fake Data
+
+During development, you may want to populate the application with mock data instead of starting from an empty state.
+
+A seeding script is included which utilizes `@faker-js/faker` to generate 10 schema-compliant, random invoices and saves them to `src/data.ts`.
+
+To run the seeding script:
+
+```bash
+bun run scripts/seed.ts
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+**Note:** After running the script, you must clear your browser's `localStorage` and refresh the page to allow the app to initialize with the newly generated data.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Project Structure
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+* `/src/components` - Reusable UI components (Buttons, Badges, Modals, Forms, Cards).
+* `/src/context` - React Context providers (`ThemeContext`, `InvoiceContext`) for global state.
+* `/src/pages` - Main application views (`InvoiceListPage`, `InvoiceDetailPage`).
+* `/src/utils` - Helper functions and utility scripts.
+* `/scripts` - Node scripts for development tasks (e.g., data seeding).
