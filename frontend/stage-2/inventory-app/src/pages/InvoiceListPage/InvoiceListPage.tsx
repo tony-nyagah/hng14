@@ -85,7 +85,7 @@ export default function InvoiceListPage() {
                     </div>
 
                     <Button icon={<Plus size={16} color="#7C5DFA" strokeWidth={3} />} onClick={() => setIsFormOpen(true)}>
-                        <span className="hide-mobile">New</span> Invoice
+                        New Invoice
                     </Button>
                 </div>
             </header>
