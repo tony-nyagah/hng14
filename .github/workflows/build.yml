@@ -13,7 +13,13 @@ jobs:
 
     strategy:
       matrix:
-        service: [ backend-stage-0, backend-stage-1, backend-stage-2 ]
+        include:
+          - service: backend-stage-0
+            context: ./backend/stage-0
+          - service: backend-stage-1
+            context: ./backend/stage-1
+          - service: backend-stage-2
+            context: ./backend/stage-2
 
     steps:
       - uses: actions/checkout@v4
@@ -28,7 +34,7 @@ jobs:
       - name: Build and push ${{ matrix.service }}
         uses: docker/build-push-action@v5
         with:
-          context: ./backend/${{ matrix.service }}
+          context: ${{ matrix.context }}
           push: true
           tags: ghcr.io/tony-nyagah/hng14/backend/${{ matrix.service }}:latest
 
