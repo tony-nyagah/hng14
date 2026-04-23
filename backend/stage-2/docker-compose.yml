@@ -1,5 +1,6 @@
 services:
   db:
+    container_name: hng14-backend-stage-2-db
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
@@ -17,6 +18,7 @@ services:
       - internal
 
   api:
+    container_name: hng14-backend-stage-2-api
     build: .
     restart: unless-stopped
     ports:
@@ -27,7 +29,7 @@ services:
       DB_USER: "${DB_USER:-postgres}"
       DB_PASSWORD: "${DB_PASSWORD:-postgres}"
       DB_NAME: "${DB_NAME:-hng14_stage2}"
-      PORT: "8060"
+      PORT: "8070"
     depends_on:
       db:
         condition: service_healthy
