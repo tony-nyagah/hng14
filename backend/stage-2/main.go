@@ -1,877 +1,286 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
 	"github.com/google/uuid"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+	_ "github.com/mattn/go-sqlite3"
 )
 
-// ── Model ─────────────────────────────────────────────────────────────────────
+// --- Models ---
 
 type Profile struct {
-	ID                 string    `gorm:"primarykey;type:varchar(36)" json:"id"`
-	Name               string    `gorm:"uniqueIndex;not null;type:varchar(255)" json:"name"`
-	Gender             string    `gorm:"type:varchar(10);index" json:"gender"`
-	GenderProbability  float64   `gorm:"index" json:"gender_probability"`
-	Age                int       `gorm:"index" json:"age"`
-	AgeGroup           string    `gorm:"type:varchar(20);index" json:"age_group"`
-	CountryID          string    `gorm:"type:varchar(2);index" json:"country_id"`
-	CountryName        string    `gorm:"type:varchar(100)" json:"country_name"`
-	CountryProbability float64   `gorm:"index" json:"country_probability"`
-	CreatedAt          time.Time `gorm:"index" json:"created_at"`
+	ID                 string    `json:"id"`
+	Name               string    `json:"name"`
+	Gender             string    `json:"gender"`
+	GenderProbability  float64   `json:"gender_probability"`
+	Age                int       `json:"age"`
+	AgeGroup           string    `json:"age_group"`
+	CountryID          string    `json:"country_id"`
+	CountryName        string    `json:"country_name"`
+	CountryProbability float64   `json:"country_probability"`
+	CreatedAt          time.Time `json:"created_at"`
 }
 
-// ── Database ──────────────────────────────────────────────────────────────────
+// SeedWrapper matches the JSON structure: {"profiles": [...]}
+type SeedWrapper struct {
+	Profiles []Profile `json:"profiles"`
+}
 
-var db *gorm.DB
+type APIResponse struct {
+	Status  string      `json:"status"`
+	Page    int         `json:"page,omitempty"`
+	Limit   int         `json:"limit,omitempty"`
+	Total   int         `json:"total,omitempty"`
+	Message string      `json:"message,omitempty"`
+	Data    interface{} `json:"data,omitempty"`
+}
+
+var db *sql.DB
+
+// --- Database & Seeding ---
 
 func initDB() {
-	cfg := &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)}
-
 	var err error
-
-	// If SQLITE_FILE is set, use SQLite (handy for local dev / tests).
-	if sqliteFile := os.Getenv("SQLITE_FILE"); sqliteFile != "" {
-		db, err = gorm.Open(sqlite.Open(sqliteFile), cfg)
-	} else {
-		dsn := os.Getenv("DATABASE_URL")
-		if dsn == "" {
-			host := getEnv("DB_HOST", "localhost")
-			port := getEnv("DB_PORT", "5432")
-			user := getEnv("DB_USER", "postgres")
-			pass := getEnv("DB_PASSWORD", "postgres")
-			name := getEnv("DB_NAME", "hng14_stage2")
-			dsn = fmt.Sprintf(
-				"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable TimeZone=UTC",
-				host, port, user, pass, name,
-			)
-		}
-		db, err = gorm.Open(postgres.Open(dsn), cfg)
-	}
-
+	db, err = sql.Open("sqlite3", "./insighta.db")
 	if err != nil {
-		log.Fatalf("failed to connect to database: %v", err)
+		log.Fatal(err)
 	}
-	if err := db.AutoMigrate(&Profile{}); err != nil {
-		log.Fatalf("failed to migrate: %v", err)
-	}
-	log.Println("Database connected and migrated")
-}
 
-func getEnv(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
-}
-
-// ── Seeding ───────────────────────────────────────────────────────────────────
-
-type seedEntry struct {
-	Name               string  `json:"name"`
-	Gender             string  `json:"gender"`
-	GenderProbability  float64 `json:"gender_probability"`
-	Age                int     `json:"age"`
-	AgeGroup           string  `json:"age_group"`
-	CountryID          string  `json:"country_id"`
-	CountryName        string  `json:"country_name"`
-	CountryProbability float64 `json:"country_probability"`
-}
-
-type seedFile struct {
-	Profiles []seedEntry `json:"profiles"`
-}
-
-func seedDB() {
-	seedPath := getEnv("SEED_FILE", "seed_profiles.json")
-	f, err := os.Open(seedPath)
+	schema := `
+	CREATE TABLE IF NOT EXISTS profiles (
+		id TEXT PRIMARY KEY,
+		name TEXT UNIQUE,
+		gender TEXT,
+		gender_probability REAL,
+		age INTEGER,
+		age_group TEXT,
+		country_id TEXT,
+		country_name TEXT,
+		country_probability REAL,
+		created_at TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_profiles_filters ON profiles(gender, age, country_id, age_group);
+	`
+	_, err = db.Exec(schema)
 	if err != nil {
-		log.Printf("seed file not found: %v (skipping)", err)
+		log.Fatal(err)
+	}
+}
+
+func seedDatabase() {
+	jsonFile, err := os.Open("seed.json")
+	if err != nil {
+		log.Println("⚠️ seed.json not found. Place the file in the root directory.")
 		return
 	}
-	defer f.Close()
+	defer jsonFile.Close()
 
-	var data seedFile
-	if err := json.NewDecoder(f).Decode(&data); err != nil {
-		log.Fatalf("failed to parse seed file: %v", err)
+	byteValue, _ := ioutil.ReadAll(jsonFile)
+
+	var wrapper SeedWrapper
+	if err := json.Unmarshal(byteValue, &wrapper); err != nil {
+		log.Printf("❌ Error parsing JSON: %v", err)
+		return
 	}
 
-	inserted := 0
-	for _, e := range data.Profiles {
-		res := db.Exec(
-			`INSERT INTO profiles (id,name,gender,gender_probability,age,age_group,country_id,country_name,country_probability,created_at)
-			 VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT (name) DO NOTHING`,
-			newUUID(), e.Name, e.Gender, e.GenderProbability, e.Age, e.AgeGroup,
-			e.CountryID, e.CountryName, e.CountryProbability, time.Now().UTC(),
-		)
-		if res.Error == nil && res.RowsAffected > 0 {
-			inserted++
+	tx, err := db.Begin()
+	if err != nil {
+		log.Printf("❌ Error starting transaction: %v", err)
+		return
+	}
+
+	stmt, _ := tx.Prepare(`INSERT OR IGNORE INTO profiles (id, name, gender, gender_probability, age, age_group, country_id, country_name, country_probability, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	defer stmt.Close()
+
+	count := 0
+	for _, p := range wrapper.Profiles {
+		// FIX: Handle the dual return values from NewV7()
+		if p.ID == "" {
+			u, err := uuid.NewV7()
+			if err != nil {
+				p.ID = uuid.NewString() // Fallback
+			} else {
+				p.ID = u.String()
+			}
+		}
+
+		if p.CreatedAt.IsZero() {
+			p.CreatedAt = time.Now().UTC()
+		}
+
+		_, err := stmt.Exec(p.ID, p.Name, p.Gender, p.GenderProbability, p.Age, p.AgeGroup, p.CountryID, p.CountryName, p.CountryProbability, p.CreatedAt)
+		if err == nil {
+			count++
 		}
 	}
-
-	var total int64
-	db.Model(&Profile{}).Count(&total)
-	log.Printf("Seed complete: inserted %d new, total %d profiles in DB", inserted, total)
+	tx.Commit()
+	fmt.Printf("✅ Seeding complete. Processed %d records.\n", count)
 }
 
-func newUUID() string {
-	id, _ := uuid.NewV7()
-	return id.String()
-}
+// --- Rule-Based NLP Parser ---
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+func parseNLP(q string) (map[string]string, bool) {
+	q = strings.ToLower(q)
+	f := make(map[string]string)
+	found := false
 
-func classifyAge(age int) string {
-	switch {
-	case age <= 12:
-		return "child"
-	case age <= 19:
-		return "teenager"
-	case age <= 59:
-		return "adult"
-	default:
-		return "senior"
+	if strings.Contains(q, "female") {
+		f["gender"] = "female"
+		found = true
+	} else if strings.Contains(q, "male") {
+		f["gender"] = "male"
+		found = true
 	}
-}
 
-var httpClient = &http.Client{Timeout: 5 * time.Second}
-
-func fetchJSON(url string, target any) error {
-	resp, err := httpClient.Get(url)
-	if err != nil {
-		return err
+	if strings.Contains(q, "young") {
+		f["min_age"], f["max_age"] = "16", "24"
+		found = true
 	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return err
+	if strings.Contains(q, "teenager") {
+		f["age_group"] = "teenager"
+		found = true
 	}
-	return json.Unmarshal(body, target)
-}
-
-// ── External API types ────────────────────────────────────────────────────────
-
-type GenderizeResponse struct {
-	Gender      *string `json:"gender"`
-	Probability float64 `json:"probability"`
-	Count       *int    `json:"count"`
-}
-
-type AgifyResponse struct {
-	Age *int `json:"age"`
-}
-
-type NationalizeCountry struct {
-	CountryID   string  `json:"country_id"`
-	Probability float64 `json:"probability"`
-}
-
-type NationalizeResponse struct {
-	Country []NationalizeCountry `json:"country"`
-}
-
-// ── Country maps ──────────────────────────────────────────────────────────────
-
-// countryNameToCode maps lowercase country names (and common variants) to ISO-2 codes.
-var countryNameToCode = map[string]string{
-	// Africa (seed data + variants)
-	"nigeria": "NG", "kenya": "KE", "tanzania": "TZ", "uganda": "UG",
-	"ghana": "GH", "ethiopia": "ET", "angola": "AO", "sudan": "SD",
-	"south africa": "ZA", "egypt": "EG", "morocco": "MA", "senegal": "SN",
-	"cameroon": "CM", "zimbabwe": "ZW", "zambia": "ZM", "mozambique": "MZ",
-	"madagascar": "MG", "mali": "ML", "niger": "NE", "burkina faso": "BF",
-	"somalia": "SO", "south sudan": "SS", "rwanda": "RW", "burundi": "BI",
-	"benin": "BJ", "togo": "TG", "sierra leone": "SL", "liberia": "LR",
-	"malawi": "MW", "namibia": "NA", "botswana": "BW", "gabon": "GA",
-	"republic of the congo": "CG", "congo": "CG",
-	"dr congo": "CD", "democratic republic of congo": "CD", "democratic republic of the congo": "CD",
-	"guinea": "GN", "guinea-bissau": "GW", "equatorial guinea": "GQ",
-	"central african republic": "CF", "chad": "TD", "mauritania": "MR",
-	"gambia": "GM", "djibouti": "DJ", "eritrea": "ER", "comoros": "KM",
-	"cape verde": "CV", "sao tome and principe": "ST", "seychelles": "SC",
-	"mauritius": "MU", "lesotho": "LS", "swaziland": "SZ", "eswatini": "SZ",
-	"libya": "LY", "algeria": "DZ", "tunisia": "TN", "western sahara": "EH",
-	"ivory coast": "CI", "cote d ivoire": "CI",
-	// Rest of world
-	"united states": "US", "usa": "US", "united kingdom": "GB", "uk": "GB",
-	"canada": "CA", "australia": "AU", "germany": "DE", "france": "FR",
-	"spain": "ES", "italy": "IT", "brazil": "BR", "india": "IN",
-	"china": "CN", "japan": "JP", "russia": "RU", "mexico": "MX",
-	"indonesia": "ID", "pakistan": "PK", "bangladesh": "BD", "philippines": "PH",
-	"vietnam": "VN", "thailand": "TH", "iran": "IR", "turkey": "TR",
-	"saudi arabia": "SA", "iraq": "IQ", "afghanistan": "AF", "nepal": "NP",
-	"sri lanka": "LK", "malaysia": "MY", "singapore": "SG", "argentina": "AR",
-	"colombia": "CO", "chile": "CL", "peru": "PE", "venezuela": "VE",
-	"ukraine": "UA", "poland": "PL", "netherlands": "NL", "sweden": "SE",
-	"norway": "NO", "denmark": "DK", "finland": "FI", "switzerland": "CH",
-	"austria": "AT", "belgium": "BE", "portugal": "PT", "greece": "GR",
-	"new zealand": "NZ", "ireland": "IE", "israel": "IL", "jordan": "JO",
-	"uae": "AE", "united arab emirates": "AE", "qatar": "QA",
-}
-
-// countryCodeToName is the reverse map, built at init time.
-var countryCodeToName = map[string]string{}
-
-func init() {
-	for name, code := range countryNameToCode {
-		if existing, ok := countryCodeToName[code]; !ok || len(name) > len(existing) {
-			countryCodeToName[code] = toTitle(name)
-		}
+	if strings.Contains(q, "adult") {
+		f["age_group"] = "adult"
+		found = true
 	}
-}
 
-func toTitle(s string) string {
-	words := strings.Fields(s)
+	words := strings.Fields(q)
 	for i, w := range words {
-		if len(w) > 0 {
-			words[i] = strings.ToUpper(w[:1]) + w[1:]
+		if w == "above" && i+1 < len(words) {
+			if val, err := strconv.Atoi(words[i+1]); err == nil {
+				f["min_age"] = strconv.Itoa(val + 1)
+				found = true
+			}
 		}
 	}
-	return strings.Join(words, " ")
+
+	countries := map[string]string{"nigeria": "NG", "kenya": "KE", "angola": "AO", "benin": "BJ"}
+	for name, code := range countries {
+		if strings.Contains(q, name) {
+			f["country_id"] = code
+			found = true
+		}
+	}
+
+	return f, found
 }
 
-// ── Filters ───────────────────────────────────────────────────────────────────
+// --- Handlers ---
 
-type ProfileFilters struct {
-	Gender                *string
-	AgeGroup              *string
-	CountryID             *string
-	MinAge                *int
-	MaxAge                *int
-	MinGenderProbability  *float64
-	MinCountryProbability *float64
-	SortBy                string
-	Order                 string
-	Page                  int
-	Limit                 int
-}
+func profilesHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Content-Type", "application/json")
 
-func applyFilters(q *gorm.DB, f ProfileFilters) *gorm.DB {
-	if f.Gender != nil {
-		q = q.Where("gender = ?", *f.Gender)
-	}
-	if f.AgeGroup != nil {
-		q = q.Where("age_group = ?", *f.AgeGroup)
-	}
-	if f.CountryID != nil {
-		q = q.Where("country_id = ?", *f.CountryID)
-	}
-	if f.MinAge != nil {
-		q = q.Where("age >= ?", *f.MinAge)
-	}
-	if f.MaxAge != nil {
-		q = q.Where("age <= ?", *f.MaxAge)
-	}
-	if f.MinGenderProbability != nil {
-		q = q.Where("gender_probability >= ?", *f.MinGenderProbability)
-	}
-	if f.MinCountryProbability != nil {
-		q = q.Where("country_probability >= ?", *f.MinCountryProbability)
-	}
-	return q
-}
+	params := r.URL.Query()
+	filters := make(map[string]string)
 
-func applySortPagination(q *gorm.DB, f ProfileFilters) *gorm.DB {
-	validSort := map[string]bool{"age": true, "created_at": true, "gender_probability": true}
-	sortBy := "created_at"
-	if validSort[f.SortBy] {
-		sortBy = f.SortBy
+	if strings.Contains(r.URL.Path, "/search") {
+		q := params.Get("q")
+		if q == "" {
+			w.WriteHeader(400)
+			json.NewEncoder(w).Encode(APIResponse{Status: "error", Message: "Missing or empty parameter"})
+			return
+		}
+		var ok bool
+		filters, ok = parseNLP(q)
+		if !ok {
+			w.WriteHeader(400)
+			json.NewEncoder(w).Encode(APIResponse{Status: "error", Message: "Unable to interpret query"})
+			return
+		}
+	} else {
+		keys := []string{"gender", "age_group", "country_id", "min_age", "max_age", "min_gender_probability", "min_country_probability"}
+		for _, k := range keys {
+			if v := params.Get(k); v != "" {
+				filters[k] = v
+			}
+		}
 	}
-	order := "asc"
-	if strings.ToLower(f.Order) == "desc" {
-		order = "desc"
-	}
-	// Secondary sort by id ensures stable, deterministic pagination
-	q = q.Order(fmt.Sprintf("%s %s, id asc", sortBy, order))
 
-	page := f.Page
+	page, _ := strconv.Atoi(params.Get("page"))
 	if page < 1 {
 		page = 1
 	}
-	limit := f.Limit
-	if limit < 1 {
+	limit, _ := strconv.Atoi(params.Get("limit"))
+	if limit < 1 || limit > 50 {
 		limit = 10
 	}
-	if limit > 50 {
-		limit = 50
-	}
-	q = q.Offset((page - 1) * limit).Limit(limit)
-	return q
-}
 
-// parseQueryFilters returns (filters, errCode) where errCode is:
-//
-//	0   — valid
-//	400 — invalid or missing parameter
-func parseQueryFilters(c *gin.Context) (ProfileFilters, int) {
-	f := ProfileFilters{
-		SortBy: c.Query("sort_by"),
-		Order:  c.Query("order"),
-		Page:   1,
-		Limit:  10,
+	sortBy := params.Get("sort_by")
+	if sortBy != "age" && sortBy != "gender_probability" && sortBy != "created_at" {
+		sortBy = "created_at"
+	}
+	order := strings.ToLower(params.Get("order"))
+	if order != "asc" {
+		order = "desc"
 	}
 
-	if v := c.Query("gender"); v != "" {
-		if v != "male" && v != "female" {
-			return f, http.StatusBadRequest
-		}
-		f.Gender = &v
-	}
-	if v := c.Query("age_group"); v != "" {
-		valid := map[string]bool{"child": true, "teenager": true, "adult": true, "senior": true}
-		if !valid[v] {
-			return f, http.StatusBadRequest
-		}
-		f.AgeGroup = &v
-	}
-	if v := c.Query("country_id"); v != "" {
-		upper := strings.ToUpper(v)
-		f.CountryID = &upper
-	}
-	if v := c.Query("min_age"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil {
-			return f, http.StatusBadRequest
-		}
-		f.MinAge = &n
-	}
-	if v := c.Query("max_age"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil {
-			return f, http.StatusBadRequest
-		}
-		f.MaxAge = &n
-	}
-	if v := c.Query("min_gender_probability"); v != "" {
-		fv, err := strconv.ParseFloat(v, 64)
-		if err != nil {
-			return f, http.StatusBadRequest
-		}
-		f.MinGenderProbability = &fv
-	}
-	if v := c.Query("min_country_probability"); v != "" {
-		fv, err := strconv.ParseFloat(v, 64)
-		if err != nil {
-			return f, http.StatusBadRequest
-		}
-		f.MinCountryProbability = &fv
-	}
-	if v := c.Query("sort_by"); v != "" {
-		valid := map[string]bool{"age": true, "created_at": true, "gender_probability": true}
-		if !valid[v] {
-			return f, http.StatusBadRequest
-		}
-	}
-	if v := c.Query("order"); v != "" {
-		lower := strings.ToLower(v)
-		if lower != "asc" && lower != "desc" {
-			return f, http.StatusBadRequest
-		}
-		f.Order = lower
-	}
-	if v := c.Query("page"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 {
-			return f, http.StatusBadRequest
-		}
-		f.Page = n
-	}
-	if v := c.Query("limit"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 {
-			return f, http.StatusBadRequest
-		}
-		f.Limit = n
-	}
-	return f, 0
-}
+	sqlBase := "FROM profiles WHERE 1=1"
+	var args []interface{}
 
-// ── NLQ Parser ────────────────────────────────────────────────────────────────
-
-var (
-	reMale    = regexp.MustCompile(`\b(male|males|men|man|boy|boys)\b`)
-	reFemale  = regexp.MustCompile(`\b(female|females|women|woman|girl|girls)\b`)
-	reChild   = regexp.MustCompile(`\b(child|children|kid|kids)\b`)
-	reTeen    = regexp.MustCompile(`\b(teenager|teenagers|teen|teens|adolescent|adolescents)\b`)
-	reAdult   = regexp.MustCompile(`\b(adult|adults)\b`)
-	reSenior  = regexp.MustCompile(`\b(senior|seniors|elderly)\b`)
-	reYoung   = regexp.MustCompile(`\byoung\b`)
-	reAbove   = regexp.MustCompile(`(?:above|over|older than|at least)\s+(\d+)`)
-	reBelow   = regexp.MustCompile(`(?:below|under|younger than|at most)\s+(\d+)`)
-	reBetween = regexp.MustCompile(`between\s+(\d+)\s+and\s+(\d+)`)
-	reFrom    = regexp.MustCompile(`\bfrom\s+([a-z][a-z\s\-]*)`)
-	reStop    = regexp.MustCompile(`\s+(above|below|over|under|between|who|with|aged?|and|\d).*$`)
-)
-
-func parseNLQ(q string) (ProfileFilters, bool) {
-	f := ProfileFilters{Page: 1, Limit: 10}
-	lower := strings.ToLower(strings.TrimSpace(q))
-	if lower == "" {
-		return f, false
+	filterSpecs := map[string]string{
+		"gender": "AND gender = ?", "age_group": "AND age_group = ?", "country_id": "AND country_id = ?",
+		"min_age": "AND age >= ?", "max_age": "AND age <= ?",
+		"min_gender_probability": "AND gender_probability >= ?", "min_country_probability": "AND country_probability >= ?",
 	}
 
-	interpreted := false
-
-	// Gender
-	hasMale := reMale.MatchString(lower)
-	hasFemale := reFemale.MatchString(lower)
-	if hasMale && !hasFemale {
-		g := "male"
-		f.Gender = &g
-		interpreted = true
-	} else if hasFemale && !hasMale {
-		g := "female"
-		f.Gender = &g
-		interpreted = true
-	} else if hasMale && hasFemale {
-		interpreted = true // both genders mentioned — no gender filter, but valid query
-	}
-
-	// Age group (first match wins)
-	switch {
-	case reChild.MatchString(lower):
-		ag := "child"
-		f.AgeGroup = &ag
-		interpreted = true
-	case reTeen.MatchString(lower):
-		ag := "teenager"
-		f.AgeGroup = &ag
-		interpreted = true
-	case reAdult.MatchString(lower):
-		ag := "adult"
-		f.AgeGroup = &ag
-		interpreted = true
-	case reSenior.MatchString(lower):
-		ag := "senior"
-		f.AgeGroup = &ag
-		interpreted = true
-	}
-
-	// "young" → 16–24 (only if no age_group detected)
-	if f.AgeGroup == nil && reYoung.MatchString(lower) {
-		min, max := 16, 24
-		f.MinAge = &min
-		f.MaxAge = &max
-		interpreted = true
-	}
-
-	// Age ranges: between X and Y takes precedence over above/below
-	if m := reBetween.FindStringSubmatch(lower); m != nil {
-		n1, _ := strconv.Atoi(m[1])
-		n2, _ := strconv.Atoi(m[2])
-		f.MinAge = &n1
-		f.MaxAge = &n2
-		interpreted = true
-	} else {
-		if m := reAbove.FindStringSubmatch(lower); m != nil {
-			n, _ := strconv.Atoi(m[1])
-			f.MinAge = &n
-			interpreted = true
-		}
-		if m := reBelow.FindStringSubmatch(lower); m != nil {
-			n, _ := strconv.Atoi(m[1])
-			f.MaxAge = &n
-			interpreted = true
+	for k, clause := range filterSpecs {
+		if v, ok := filters[k]; ok {
+			sqlBase += " " + clause
+			args = append(args, v)
 		}
 	}
 
-	// Country: extract text after "from"
-	if m := reFrom.FindStringSubmatch(lower); m != nil {
-		candidate := strings.TrimSpace(reStop.ReplaceAllString(m[1], ""))
-		if candidate != "" {
-			if code, ok := countryNameToCode[candidate]; ok {
-				f.CountryID = &code
-				interpreted = true
-			} else {
-				// Try progressively shorter word sequences (handles multi-word countries)
-				words := strings.Fields(candidate)
-				for i := len(words); i > 0; i-- {
-					partial := strings.Join(words[:i], " ")
-					if code, ok := countryNameToCode[partial]; ok {
-						f.CountryID = &code
-						interpreted = true
-						break
-					}
-				}
-			}
-		}
-	}
+	var total int
+	db.QueryRow("SELECT COUNT(*) "+sqlBase, args...).Scan(&total)
 
-	return f, interpreted
-}
-
-// ── Response types (struct order controls JSON key order) ─────────────────────
-
-type errResp struct {
-	Status  string `json:"status"`
-	Message string `json:"message"`
-}
-
-type profileResp struct {
-	Status string  `json:"status"`
-	Data   Profile `json:"data"`
-}
-
-type listResp struct {
-	Status string    `json:"status"`
-	Page   int       `json:"page"`
-	Limit  int       `json:"limit"`
-	Total  int64     `json:"total"`
-	Data   []Profile `json:"data"`
-}
-
-// ── Handlers ──────────────────────────────────────────────────────────────────
-
-func createProfile(c *gin.Context) {
-	var body struct {
-		Name               string   `json:"name" binding:"required"`
-		Gender             *string  `json:"gender"`
-		GenderProbability  *float64 `json:"gender_probability"`
-		Age                *int     `json:"age"`
-		AgeGroup           *string  `json:"age_group"`
-		CountryID          *string  `json:"country_id"`
-		CountryName        *string  `json:"country_name"`
-		CountryProbability *float64 `json:"country_probability"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, errResp{"error", "name is required"})
+	finalQuery := fmt.Sprintf("SELECT * %s ORDER BY %s %s LIMIT %d OFFSET %d", sqlBase, sortBy, order, limit, (page-1)*limit)
+	rows, err := db.Query(finalQuery, args...)
+	if err != nil {
+		w.WriteHeader(500)
+		json.NewEncoder(w).Encode(APIResponse{Status: "error", Message: "Server failure"})
 		return
 	}
+	defer rows.Close()
 
-	name := strings.TrimSpace(body.Name)
-	if name == "" {
-		c.JSON(http.StatusBadRequest, errResp{"error", "name is required"})
-		return
-	}
-
-	hasFullData := body.Gender != nil || body.CountryID != nil || body.Age != nil
-
-	// For name-only requests: return existing immediately (no need to hit APIs)
-	if !hasFullData {
-		var existing Profile
-		if err := db.Where("name = ?", name).First(&existing).Error; err == nil {
-			c.JSON(http.StatusOK, profileResp{"success", existing})
-			return
-		}
-
-		// Call all three APIs concurrently
-		var (
-			gr GenderizeResponse
-			ar AgifyResponse
-			nr NationalizeResponse
-			wg sync.WaitGroup
-		)
-		fetch := func(url string, target any) {
-			defer wg.Done()
-			_ = fetchJSON(url, target)
-		}
-		wg.Add(3)
-		go fetch(fmt.Sprintf("https://api.genderize.io?name=%s", name), &gr)
-		go fetch(fmt.Sprintf("https://api.agify.io?name=%s", name), &ar)
-		go fetch(fmt.Sprintf("https://api.nationalize.io?name=%s", name), &nr)
-		wg.Wait()
-
-		top := NationalizeCountry{}
-		for _, ct := range nr.Country {
-			if ct.Probability > top.Probability {
-				top = ct
-			}
-		}
-		gender := ""
-		if gr.Gender != nil {
-			gender = *gr.Gender
-		}
-		age := 0
-		if ar.Age != nil {
-			age = *ar.Age
-		}
-		countryName := countryCodeToName[top.CountryID]
-		if countryName == "" {
-			countryName = top.CountryID
-		}
-
-		p := Profile{
-			ID:                 newUUID(),
-			Name:               name,
-			Gender:             gender,
-			GenderProbability:  gr.Probability,
-			Age:                age,
-			AgeGroup:           classifyAge(age),
-			CountryID:          top.CountryID,
-			CountryName:        countryName,
-			CountryProbability: top.Probability,
-			CreatedAt:          time.Now().UTC(),
-		}
-		if err := db.Create(&p).Error; err != nil {
-			var existing2 Profile
-			if db.Where("name = ?", name).First(&existing2).Error == nil {
-				c.JSON(http.StatusOK, profileResp{"success", existing2})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, errResp{"error", "failed to create profile"})
-			return
-		}
-		c.JSON(http.StatusCreated, profileResp{"success", p})
-		return
+	results := []Profile{}
+	for rows.Next() {
+		var p Profile
+		rows.Scan(&p.ID, &p.Name, &p.Gender, &p.GenderProbability, &p.Age, &p.AgeGroup, &p.CountryID, &p.CountryName, &p.CountryProbability, &p.CreatedAt)
+		results = append(results, p)
 	}
 
-	// Full data provided: compute fields from body
-	var (
-		gender      string
-		genderProb  float64
-		age         int
-		ageGroup    string
-		countryID   string
-		countryName string
-		countryProb float64
-	)
-	if body.Gender != nil {
-		gender = *body.Gender
-	}
-	if body.GenderProbability != nil {
-		genderProb = *body.GenderProbability
-	}
-	if body.Age != nil {
-		age = *body.Age
-	}
-	if body.AgeGroup != nil && *body.AgeGroup != "" {
-		ageGroup = *body.AgeGroup
-	} else {
-		ageGroup = classifyAge(age)
-	}
-	if body.CountryID != nil {
-		countryID = strings.ToUpper(*body.CountryID)
-	}
-	if body.CountryName != nil && *body.CountryName != "" {
-		countryName = *body.CountryName
-	} else if countryID != "" {
-		countryName = countryCodeToName[countryID]
-		if countryName == "" {
-			countryName = countryID
-		}
-	}
-	if body.CountryProbability != nil {
-		countryProb = *body.CountryProbability
-	}
-
-	// UPSERT: if profile already exists (possibly with stale empty data from a
-	// previous attempt), update it with the freshly-provided attributes.
-	var existing Profile
-	if db.Where("name = ?", name).First(&existing).Error == nil {
-		db.Exec(
-			`UPDATE profiles SET gender=?, gender_probability=?, age=?, age_group=?,
-			 country_id=?, country_name=?, country_probability=? WHERE name=?`,
-			gender, genderProb, age, ageGroup, countryID, countryName, countryProb, name,
-		)
-		db.Where("name = ?", name).First(&existing)
-		c.JSON(http.StatusOK, profileResp{"success", existing})
-		return
-	}
-
-	// Profile does not exist — create it
-	p := Profile{
-		ID:                 newUUID(),
-		Name:               name,
-		Gender:             gender,
-		GenderProbability:  genderProb,
-		Age:                age,
-		AgeGroup:           ageGroup,
-		CountryID:          countryID,
-		CountryName:        countryName,
-		CountryProbability: countryProb,
-		CreatedAt:          time.Now().UTC(),
-	}
-	if err := db.Create(&p).Error; err != nil {
-		var existing2 Profile
-		if db.Where("name = ?", name).First(&existing2).Error == nil {
-			c.JSON(http.StatusOK, profileResp{"success", existing2})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, errResp{"error", "failed to create profile"})
-		return
-	}
-	c.JSON(http.StatusCreated, profileResp{"success", p})
-}
-
-func listProfiles(c *gin.Context) {
-	f, errCode := parseQueryFilters(c)
-	if errCode != 0 {
-		c.JSON(errCode, errResp{"error", "Invalid query parameters"})
-		return
-	}
-
-	var total int64
-	if err := applyFilters(db.Model(&Profile{}), f).Count(&total).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, errResp{"error", "database error"})
-		return
-	}
-
-	var profiles []Profile
-	if err := applySortPagination(applyFilters(db.Model(&Profile{}), f), f).Find(&profiles).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, errResp{"error", "database error"})
-		return
-	}
-	if profiles == nil {
-		profiles = []Profile{}
-	}
-
-	limit := f.Limit
-	if limit < 1 {
-		limit = 10
-	}
-	if limit > 50 {
-		limit = 50
-	}
-
-	c.JSON(http.StatusOK, listResp{
+	json.NewEncoder(w).Encode(APIResponse{
 		Status: "success",
-		Page:   f.Page,
+		Page:   page,
 		Limit:  limit,
 		Total:  total,
-		Data:   profiles,
+		Data:   results,
 	})
 }
-
-func searchProfiles(c *gin.Context) {
-	q := c.Query("q")
-	if strings.TrimSpace(q) == "" {
-		c.JSON(http.StatusBadRequest, errResp{"error", "Invalid query parameters"})
-		return
-	}
-
-	f, ok := parseNLQ(q)
-	if !ok {
-		c.JSON(http.StatusBadRequest, errResp{"error", "Unable to interpret query"})
-		return
-	}
-
-	// Allow pagination overrides from explicit query params
-	if v := c.Query("page"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 {
-			c.JSON(http.StatusBadRequest, errResp{"error", "Invalid query parameters"})
-			return
-		}
-		f.Page = n
-	}
-	if v := c.Query("limit"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 {
-			c.JSON(http.StatusBadRequest, errResp{"error", "Invalid query parameters"})
-			return
-		}
-		f.Limit = n
-	}
-
-	var total int64
-	if err := applyFilters(db.Model(&Profile{}), f).Count(&total).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, errResp{"error", "database error"})
-		return
-	}
-
-	var profiles []Profile
-	if err := applySortPagination(applyFilters(db.Model(&Profile{}), f), f).Find(&profiles).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, errResp{"error", "database error"})
-		return
-	}
-	if profiles == nil {
-		profiles = []Profile{}
-	}
-
-	limit := f.Limit
-	if limit < 1 {
-		limit = 10
-	}
-	if limit > 50 {
-		limit = 50
-	}
-
-	c.JSON(http.StatusOK, listResp{
-		Status: "success",
-		Page:   f.Page,
-		Limit:  limit,
-		Total:  total,
-		Data:   profiles,
-	})
-}
-
-func getProfile(c *gin.Context) {
-	id := c.Param("id")
-	var p Profile
-	if err := db.Where("id = ?", id).First(&p).Error; err != nil {
-		c.JSON(http.StatusNotFound, errResp{"error", "Profile not found"})
-		return
-	}
-	c.JSON(http.StatusOK, profileResp{"success", p})
-}
-
-func deleteProfile(c *gin.Context) {
-	id := c.Param("id")
-	result := db.Where("id = ?", id).Delete(&Profile{})
-	if result.Error != nil {
-		c.JSON(http.StatusInternalServerError, errResp{"error", "failed to delete"})
-		return
-	}
-	if result.RowsAffected == 0 {
-		c.JSON(http.StatusNotFound, errResp{"error", "Profile not found"})
-		return
-	}
-	c.JSON(http.StatusOK, struct {
-		Status  string `json:"status"`
-		Message string `json:"message"`
-	}{"success", "Profile deleted successfully"})
-}
-
-// ── Router ────────────────────────────────────────────────────────────────────
-
-func setupRouter() *gin.Engine {
-	r := gin.New()
-	r.Use(gin.Recovery())
-
-	r.Use(func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*")
-		c.Header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(http.StatusNoContent)
-			return
-		}
-		c.Next()
-	})
-
-	api := r.Group("/api")
-	{
-		api.POST("/profiles", createProfile)
-		api.GET("/profiles/search", searchProfiles) // must be before /:id
-		api.GET("/profiles", listProfiles)
-		api.GET("/profiles/:id", getProfile)
-		api.DELETE("/profiles/:id", deleteProfile)
-	}
-	return r
-}
-
-// ── Main ──────────────────────────────────────────────────────────────────────
 
 func main() {
 	initDB()
-	seedDB()
+	seedDatabase()
 
-	port := getEnv("PORT", "8070")
-	log.Printf("Starting server on :%s", port)
-	setupRouter().Run(":" + port)
+	http.HandleFunc("/api/profiles", profilesHandler)
+	http.HandleFunc("/api/profiles/search", profilesHandler)
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	fmt.Printf("🚀 Intelligence Engine running on :%s\n", port)
+	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
