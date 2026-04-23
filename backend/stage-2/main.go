@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/google/uuid"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -40,31 +41,35 @@ type Profile struct {
 var db *gorm.DB
 
 func initDB() {
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		host := getEnv("DB_HOST", "localhost")
-		port := getEnv("DB_PORT", "5432")
-		user := getEnv("DB_USER", "postgres")
-		pass := getEnv("DB_PASSWORD", "postgres")
-		name := getEnv("DB_NAME", "hng14_stage2")
-		dsn = fmt.Sprintf(
-			"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable TimeZone=UTC",
-			host, port, user, pass, name,
-		)
-	}
+	cfg := &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)}
 
 	var err error
-	db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Silent),
-	})
+
+	// If SQLITE_FILE is set, use SQLite (handy for local dev / tests).
+	if sqliteFile := os.Getenv("SQLITE_FILE"); sqliteFile != "" {
+		db, err = gorm.Open(sqlite.Open(sqliteFile), cfg)
+	} else {
+		dsn := os.Getenv("DATABASE_URL")
+		if dsn == "" {
+			host := getEnv("DB_HOST", "localhost")
+			port := getEnv("DB_PORT", "5432")
+			user := getEnv("DB_USER", "postgres")
+			pass := getEnv("DB_PASSWORD", "postgres")
+			name := getEnv("DB_NAME", "hng14_stage2")
+			dsn = fmt.Sprintf(
+				"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable TimeZone=UTC",
+				host, port, user, pass, name,
+			)
+		}
+		db, err = gorm.Open(postgres.Open(dsn), cfg)
+	}
+
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-
 	if err := db.AutoMigrate(&Profile{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
-
 	log.Println("Database connected and migrated")
 }
 
@@ -312,8 +317,7 @@ func applySortPagination(q *gorm.DB, f ProfileFilters) *gorm.DB {
 // parseQueryFilters returns (filters, errCode) where errCode is:
 //
 //	0   — valid
-//	400 — missing / empty required parameter
-//	422 — invalid parameter type or value
+//	400 — invalid or missing parameter
 func parseQueryFilters(c *gin.Context) (ProfileFilters, int) {
 	f := ProfileFilters{
 		SortBy: c.Query("sort_by"),
@@ -324,14 +328,14 @@ func parseQueryFilters(c *gin.Context) (ProfileFilters, int) {
 
 	if v := c.Query("gender"); v != "" {
 		if v != "male" && v != "female" {
-			return f, http.StatusUnprocessableEntity
+			return f, http.StatusBadRequest
 		}
 		f.Gender = &v
 	}
 	if v := c.Query("age_group"); v != "" {
 		valid := map[string]bool{"child": true, "teenager": true, "adult": true, "senior": true}
 		if !valid[v] {
-			return f, http.StatusUnprocessableEntity
+			return f, http.StatusBadRequest
 		}
 		f.AgeGroup = &v
 	}
@@ -342,53 +346,55 @@ func parseQueryFilters(c *gin.Context) (ProfileFilters, int) {
 	if v := c.Query("min_age"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			return f, http.StatusUnprocessableEntity
+			return f, http.StatusBadRequest
 		}
 		f.MinAge = &n
 	}
 	if v := c.Query("max_age"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			return f, http.StatusUnprocessableEntity
+			return f, http.StatusBadRequest
 		}
 		f.MaxAge = &n
 	}
 	if v := c.Query("min_gender_probability"); v != "" {
 		fv, err := strconv.ParseFloat(v, 64)
 		if err != nil {
-			return f, http.StatusUnprocessableEntity
+			return f, http.StatusBadRequest
 		}
 		f.MinGenderProbability = &fv
 	}
 	if v := c.Query("min_country_probability"); v != "" {
 		fv, err := strconv.ParseFloat(v, 64)
 		if err != nil {
-			return f, http.StatusUnprocessableEntity
+			return f, http.StatusBadRequest
 		}
 		f.MinCountryProbability = &fv
 	}
 	if v := c.Query("sort_by"); v != "" {
 		valid := map[string]bool{"age": true, "created_at": true, "gender_probability": true}
 		if !valid[v] {
-			return f, http.StatusUnprocessableEntity
+			return f, http.StatusBadRequest
 		}
 	}
 	if v := c.Query("order"); v != "" {
-		if v != "asc" && v != "desc" {
-			return f, http.StatusUnprocessableEntity
+		lower := strings.ToLower(v)
+		if lower != "asc" && lower != "desc" {
+			return f, http.StatusBadRequest
 		}
+		f.Order = lower
 	}
 	if v := c.Query("page"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 {
-			return f, http.StatusUnprocessableEntity
+			return f, http.StatusBadRequest
 		}
 		f.Page = n
 	}
 	if v := c.Query("limit"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 {
-			return f, http.StatusUnprocessableEntity
+			return f, http.StatusBadRequest
 		}
 		f.Limit = n
 	}
@@ -509,6 +515,26 @@ func parseNLQ(q string) (ProfileFilters, bool) {
 	return f, interpreted
 }
 
+// ── Response types (struct order controls JSON key order) ─────────────────────
+
+type errResp struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
+type profileResp struct {
+	Status string  `json:"status"`
+	Data   Profile `json:"data"`
+}
+
+type listResp struct {
+	Status string    `json:"status"`
+	Page   int       `json:"page"`
+	Limit  int       `json:"limit"`
+	Total  int64     `json:"total"`
+	Data   []Profile `json:"data"`
+}
+
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
 func createProfile(c *gin.Context) {
@@ -523,23 +549,88 @@ func createProfile(c *gin.Context) {
 		CountryProbability *float64 `json:"country_probability"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "name is required"})
+		c.JSON(http.StatusBadRequest, errResp{"error", "name is required"})
 		return
 	}
 
 	name := strings.TrimSpace(body.Name)
 	if name == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "name is required"})
+		c.JSON(http.StatusBadRequest, errResp{"error", "name is required"})
 		return
 	}
 
-	// Idempotency check
-	var existing Profile
-	if err := db.Where("name = ?", name).First(&existing).Error; err == nil {
-		c.JSON(http.StatusOK, gin.H{"status": "success", "data": existing})
+	hasFullData := body.Gender != nil || body.CountryID != nil || body.Age != nil
+
+	// For name-only requests: return existing immediately (no need to hit APIs)
+	if !hasFullData {
+		var existing Profile
+		if err := db.Where("name = ?", name).First(&existing).Error; err == nil {
+			c.JSON(http.StatusOK, profileResp{"success", existing})
+			return
+		}
+
+		// Call all three APIs concurrently
+		var (
+			gr GenderizeResponse
+			ar AgifyResponse
+			nr NationalizeResponse
+			wg sync.WaitGroup
+		)
+		fetch := func(url string, target any) {
+			defer wg.Done()
+			_ = fetchJSON(url, target)
+		}
+		wg.Add(3)
+		go fetch(fmt.Sprintf("https://api.genderize.io?name=%s", name), &gr)
+		go fetch(fmt.Sprintf("https://api.agify.io?name=%s", name), &ar)
+		go fetch(fmt.Sprintf("https://api.nationalize.io?name=%s", name), &nr)
+		wg.Wait()
+
+		top := NationalizeCountry{}
+		for _, ct := range nr.Country {
+			if ct.Probability > top.Probability {
+				top = ct
+			}
+		}
+		gender := ""
+		if gr.Gender != nil {
+			gender = *gr.Gender
+		}
+		age := 0
+		if ar.Age != nil {
+			age = *ar.Age
+		}
+		countryName := countryCodeToName[top.CountryID]
+		if countryName == "" {
+			countryName = top.CountryID
+		}
+
+		p := Profile{
+			ID:                 newUUID(),
+			Name:               name,
+			Gender:             gender,
+			GenderProbability:  gr.Probability,
+			Age:                age,
+			AgeGroup:           classifyAge(age),
+			CountryID:          top.CountryID,
+			CountryName:        countryName,
+			CountryProbability: top.Probability,
+			CreatedAt:          time.Now().UTC(),
+		}
+		if err := db.Create(&p).Error; err != nil {
+			var existing2 Profile
+			if db.Where("name = ?", name).First(&existing2).Error == nil {
+				c.JSON(http.StatusOK, profileResp{"success", existing2})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, errResp{"error", "failed to create profile"})
+			return
+		}
+		c.JSON(http.StatusCreated, profileResp{"success", p})
 		return
 	}
 
+	// Full data provided: compute fields from body
 	var (
 		gender      string
 		genderProb  float64
@@ -549,84 +640,50 @@ func createProfile(c *gin.Context) {
 		countryName string
 		countryProb float64
 	)
-
-	// If any profile attribute is provided in the body, use it directly and skip
-	// external API calls. This allows the caller to seed profiles with known data.
-	hasFullData := body.Gender != nil || body.CountryID != nil || body.Age != nil
-
-	if hasFullData {
-		if body.Gender != nil {
-			gender = *body.Gender
-		}
-		if body.GenderProbability != nil {
-			genderProb = *body.GenderProbability
-		}
-		if body.Age != nil {
-			age = *body.Age
-		}
-		if body.AgeGroup != nil && *body.AgeGroup != "" {
-			ageGroup = *body.AgeGroup
-		} else {
-			ageGroup = classifyAge(age)
-		}
-		if body.CountryID != nil {
-			countryID = strings.ToUpper(*body.CountryID)
-		}
-		if body.CountryName != nil && *body.CountryName != "" {
-			countryName = *body.CountryName
-		} else if countryID != "" {
-			countryName = countryCodeToName[countryID]
-			if countryName == "" {
-				countryName = countryID
-			}
-		}
-		if body.CountryProbability != nil {
-			countryProb = *body.CountryProbability
-		}
+	if body.Gender != nil {
+		gender = *body.Gender
+	}
+	if body.GenderProbability != nil {
+		genderProb = *body.GenderProbability
+	}
+	if body.Age != nil {
+		age = *body.Age
+	}
+	if body.AgeGroup != nil && *body.AgeGroup != "" {
+		ageGroup = *body.AgeGroup
 	} else {
-		// Call all three APIs concurrently
-		var (
-			gr GenderizeResponse
-			ar AgifyResponse
-			nr NationalizeResponse
-			wg sync.WaitGroup
-		)
-
-		fetch := func(url string, target any) {
-			defer wg.Done()
-			_ = fetchJSON(url, target) // ignore errors; proceed with whatever data we got
-		}
-
-		wg.Add(3)
-		go fetch(fmt.Sprintf("https://api.genderize.io?name=%s", name), &gr)
-		go fetch(fmt.Sprintf("https://api.agify.io?name=%s", name), &ar)
-		go fetch(fmt.Sprintf("https://api.nationalize.io?name=%s", name), &nr)
-		wg.Wait()
-
-		// Pick top country
-		top := NationalizeCountry{}
-		for _, ct := range nr.Country {
-			if ct.Probability > top.Probability {
-				top = ct
-			}
-		}
-
-		if gr.Gender != nil {
-			gender = *gr.Gender
-		}
-		genderProb = gr.Probability
-		if ar.Age != nil {
-			age = *ar.Age
-		}
-		countryID = top.CountryID
-		countryName = countryCodeToName[top.CountryID]
-		if countryName == "" {
-			countryName = top.CountryID
-		}
-		countryProb = top.Probability
 		ageGroup = classifyAge(age)
 	}
+	if body.CountryID != nil {
+		countryID = strings.ToUpper(*body.CountryID)
+	}
+	if body.CountryName != nil && *body.CountryName != "" {
+		countryName = *body.CountryName
+	} else if countryID != "" {
+		countryName = countryCodeToName[countryID]
+		if countryName == "" {
+			countryName = countryID
+		}
+	}
+	if body.CountryProbability != nil {
+		countryProb = *body.CountryProbability
+	}
 
+	// UPSERT: if profile already exists (possibly with stale empty data from a
+	// previous attempt), update it with the freshly-provided attributes.
+	var existing Profile
+	if db.Where("name = ?", name).First(&existing).Error == nil {
+		db.Exec(
+			`UPDATE profiles SET gender=?, gender_probability=?, age=?, age_group=?,
+			 country_id=?, country_name=?, country_probability=? WHERE name=?`,
+			gender, genderProb, age, ageGroup, countryID, countryName, countryProb, name,
+		)
+		db.Where("name = ?", name).First(&existing)
+		c.JSON(http.StatusOK, profileResp{"success", existing})
+		return
+	}
+
+	// Profile does not exist — create it
 	p := Profile{
 		ID:                 newUUID(),
 		Name:               name,
@@ -639,37 +696,34 @@ func createProfile(c *gin.Context) {
 		CountryProbability: countryProb,
 		CreatedAt:          time.Now().UTC(),
 	}
-
 	if err := db.Create(&p).Error; err != nil {
-		// Race condition: another goroutine may have inserted the same name
 		var existing2 Profile
 		if db.Where("name = ?", name).First(&existing2).Error == nil {
-			c.JSON(http.StatusOK, gin.H{"status": "success", "data": existing2})
+			c.JSON(http.StatusOK, profileResp{"success", existing2})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "failed to create profile"})
+		c.JSON(http.StatusInternalServerError, errResp{"error", "failed to create profile"})
 		return
 	}
-
-	c.JSON(http.StatusCreated, gin.H{"status": "success", "data": p})
+	c.JSON(http.StatusCreated, profileResp{"success", p})
 }
 
 func listProfiles(c *gin.Context) {
 	f, errCode := parseQueryFilters(c)
 	if errCode != 0 {
-		c.JSON(errCode, gin.H{"status": "error", "message": "Invalid query parameters"})
+		c.JSON(errCode, errResp{"error", "Invalid query parameters"})
 		return
 	}
 
 	var total int64
 	if err := applyFilters(db.Model(&Profile{}), f).Count(&total).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "database error"})
+		c.JSON(http.StatusInternalServerError, errResp{"error", "database error"})
 		return
 	}
 
 	var profiles []Profile
 	if err := applySortPagination(applyFilters(db.Model(&Profile{}), f), f).Find(&profiles).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "database error"})
+		c.JSON(http.StatusInternalServerError, errResp{"error", "database error"})
 		return
 	}
 	if profiles == nil {
@@ -684,26 +738,25 @@ func listProfiles(c *gin.Context) {
 		limit = 50
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"status": "success",
-		"page":   f.Page,
-		"limit":  limit,
-		"total":  total,
-		"data":   profiles,
+	c.JSON(http.StatusOK, listResp{
+		Status: "success",
+		Page:   f.Page,
+		Limit:  limit,
+		Total:  total,
+		Data:   profiles,
 	})
 }
 
 func searchProfiles(c *gin.Context) {
 	q := c.Query("q")
 	if strings.TrimSpace(q) == "" {
-		// missing / empty parameter → 400
-		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Invalid query parameters"})
+		c.JSON(http.StatusBadRequest, errResp{"error", "Invalid query parameters"})
 		return
 	}
 
 	f, ok := parseNLQ(q)
 	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Unable to interpret query"})
+		c.JSON(http.StatusBadRequest, errResp{"error", "Unable to interpret query"})
 		return
 	}
 
@@ -711,7 +764,7 @@ func searchProfiles(c *gin.Context) {
 	if v := c.Query("page"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 {
-			c.JSON(http.StatusUnprocessableEntity, gin.H{"status": "error", "message": "Invalid query parameters"})
+			c.JSON(http.StatusBadRequest, errResp{"error", "Invalid query parameters"})
 			return
 		}
 		f.Page = n
@@ -719,7 +772,7 @@ func searchProfiles(c *gin.Context) {
 	if v := c.Query("limit"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 {
-			c.JSON(http.StatusUnprocessableEntity, gin.H{"status": "error", "message": "Invalid query parameters"})
+			c.JSON(http.StatusBadRequest, errResp{"error", "Invalid query parameters"})
 			return
 		}
 		f.Limit = n
@@ -727,13 +780,13 @@ func searchProfiles(c *gin.Context) {
 
 	var total int64
 	if err := applyFilters(db.Model(&Profile{}), f).Count(&total).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "database error"})
+		c.JSON(http.StatusInternalServerError, errResp{"error", "database error"})
 		return
 	}
 
 	var profiles []Profile
 	if err := applySortPagination(applyFilters(db.Model(&Profile{}), f), f).Find(&profiles).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "database error"})
+		c.JSON(http.StatusInternalServerError, errResp{"error", "database error"})
 		return
 	}
 	if profiles == nil {
@@ -748,12 +801,12 @@ func searchProfiles(c *gin.Context) {
 		limit = 50
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"status": "success",
-		"page":   f.Page,
-		"limit":  limit,
-		"total":  total,
-		"data":   profiles,
+	c.JSON(http.StatusOK, listResp{
+		Status: "success",
+		Page:   f.Page,
+		Limit:  limit,
+		Total:  total,
+		Data:   profiles,
 	})
 }
 
@@ -761,37 +814,35 @@ func getProfile(c *gin.Context) {
 	id := c.Param("id")
 	var p Profile
 	if err := db.Where("id = ?", id).First(&p).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"status": "error", "message": "Profile not found"})
+		c.JSON(http.StatusNotFound, errResp{"error", "Profile not found"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"status": "success", "data": p})
+	c.JSON(http.StatusOK, profileResp{"success", p})
 }
 
 func deleteProfile(c *gin.Context) {
 	id := c.Param("id")
 	result := db.Where("id = ?", id).Delete(&Profile{})
 	if result.Error != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "failed to delete"})
+		c.JSON(http.StatusInternalServerError, errResp{"error", "failed to delete"})
 		return
 	}
 	if result.RowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"status": "error", "message": "Profile not found"})
+		c.JSON(http.StatusNotFound, errResp{"error", "Profile not found"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"status": "success", "message": "Profile deleted successfully"})
+	c.JSON(http.StatusOK, struct {
+		Status  string `json:"status"`
+		Message string `json:"message"`
+	}{"success", "Profile deleted successfully"})
 }
 
-// ── Main ──────────────────────────────────────────────────────────────────────
+// ── Router ────────────────────────────────────────────────────────────────────
 
-func main() {
-	initDB()
-	seedDB()
+func setupRouter() *gin.Engine {
+	r := gin.New()
+	r.Use(gin.Recovery())
 
-	port := getEnv("PORT", "8070")
-
-	r := gin.Default()
-
-	// CORS middleware
 	r.Use(func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
@@ -811,7 +862,16 @@ func main() {
 		api.GET("/profiles/:id", getProfile)
 		api.DELETE("/profiles/:id", deleteProfile)
 	}
+	return r
+}
 
+// ── Main ──────────────────────────────────────────────────────────────────────
+
+func main() {
+	initDB()
+	seedDB()
+
+	port := getEnv("PORT", "8070")
 	log.Printf("Starting server on :%s", port)
-	r.Run(":" + port)
+	setupRouter().Run(":" + port)
 }
