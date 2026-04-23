@@ -20,7 +20,7 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - "${PORT:-8060}:8060"
+      - "${PORT:-8070}:8070"
     environment:
       DB_HOST: db
       DB_PORT: "5432"

@@ -13,7 +13,7 @@ jobs:
 
     strategy:
       matrix:
-        service: [ stage-0, stage-1, stage-2 ]
+        service: [ backend-stage-0, backend-stage-1, backend-stage-2 ]
 
     steps:
       - uses: actions/checkout@v4

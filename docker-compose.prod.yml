@@ -12,8 +12,8 @@ services:
     networks:
       - web
 
-  stage-0:
-    image: ghcr.io/tony-nyagah/hng14/stage-0:latest
+  backend-stage-0:
+    image: ghcr.io/tony-nyagah/hng14/backend/stage-0:latest
     restart: unless-stopped
     environment:
       - PORT=8059
@@ -26,8 +26,8 @@ services:
       - "traefik.http.routers.stage-0.tls.certresolver=letsencrypt"
       - "traefik.http.services.stage-0.loadbalancer.server.port=8059"
 
-  stage-1:
-    image: ghcr.io/tony-nyagah/hng14/stage-1:latest
+  backend-stage-1:
+    image: ghcr.io/tony-nyagah/hng14/backend/stage-1:latest
     restart: unless-stopped
     environment:
       - PORT=8060

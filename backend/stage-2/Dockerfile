@@ -24,9 +24,9 @@ COPY --from=builder /build/seed_profiles.json ./seed_profiles.json
 
 USER appuser
 
-EXPOSE 8060
+EXPOSE 8070
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
-    CMD ["/bin/sh", "-c", "wget -qO- http://localhost:8060/api/profiles?limit=1 > /dev/null 2>&1 || exit 1"]
+    CMD ["/bin/sh", "-c", "wget -qO- http://localhost:8070/api/profiles?limit=1 > /dev/null 2>&1 || exit 1"]
 
 CMD ["./server"]

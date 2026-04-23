@@ -730,7 +730,7 @@ func main() {
 	initDB()
 	seedDB()
 
-	port := getEnv("PORT", "8060")
+	port := getEnv("PORT", "8070")
 
 	r := gin.Default()
 

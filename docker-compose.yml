@@ -1,3 +1,6 @@
+include:
+  - backend/stage-2/docker-compose.yml
+
 services:
   backend-stage-0:
     build: ./backend/stage-0
