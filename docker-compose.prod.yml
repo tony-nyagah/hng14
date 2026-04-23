@@ -27,7 +27,7 @@ services:
       - "traefik.http.services.stage-0.loadbalancer.server.port=8059"
 
   backend-stage-2:
-    build: ./backend/stage-2-new
+    build: ./backend/stage-2
     restart: unless-stopped
     environment:
       - PORT=8070

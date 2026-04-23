@@ -279,7 +279,7 @@ func main() {
 
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080"
+		port = "8070"
 	}
 	fmt.Printf("🚀 Intelligence Engine running on :%s\n", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))

@@ -1,32 +1,35 @@
-# ── Builder ───────────────────────────────────────────────────────────────────
-FROM golang:alpine AS builder
+# Stage 1: Build the binary
+FROM golang:1.26-alpine AS builder
 
-WORKDIR /build
-
-COPY go.mod go.sum ./
-RUN go mod download
-
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o server .
-
-# ── Runtime ───────────────────────────────────────────────────────────────────
-FROM alpine:latest AS runtime
-
-RUN apk add --no-cache ca-certificates wget && apk upgrade --no-cache
-
-RUN addgroup -g 1001 appgroup && \
-    adduser -u 1001 -G appgroup -D -s /sbin/nologin appuser
+# Install build dependencies for sqlite3 (requires CGO)
+RUN apk add --no-cache gcc musl-dev
 
 WORKDIR /app
 
-COPY --from=builder /build/server ./server
-COPY --from=builder /build/seed_profiles.json ./seed_profiles.json
+# Copy go mod files first to leverage Docker cache
+COPY go.mod go.sum ./
+RUN go mod download
 
-USER appuser
+# Copy the rest of the source code
+COPY . .
 
+# Build the app with CGO enabled for sqlite3
+RUN CGO_ENABLED=1 GOOS=linux go build -o main .
+
+# Stage 2: Final lightweight image
+FROM alpine:latest
+
+RUN apk add --no-cache ca-certificates
+
+WORKDIR /root/
+
+# Copy binary from builder
+COPY --from=builder /app/main .
+# Copy seed data so the app can seed on startup
+COPY --from=builder /app/seed.json .
+
+# Expose the port the app runs on
 EXPOSE 8070
 
-HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
-    CMD ["/bin/sh", "-c", "wget -qO- http://localhost:8070/api/profiles?limit=1 > /dev/null 2>&1 || exit 1"]
-
-CMD ["./server"]
+# Run the application
+CMD ["./main"]
