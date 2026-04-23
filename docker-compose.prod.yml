@@ -13,7 +13,7 @@ services:
       - web
 
   backend-stage-0:
-    image: ghcr.io/tony-nyagah/hng14/backend/stage-0:latest
+    image: ghcr.io/tony-nyagah/hng14/backend/backend-stage-0:latest
     restart: unless-stopped
     environment:
       - PORT=8059
@@ -27,7 +27,7 @@ services:
       - "traefik.http.services.stage-0.loadbalancer.server.port=8059"
 
   backend-stage-1:
-    image: ghcr.io/tony-nyagah/hng14/backend/stage-1:latest
+    image: ghcr.io/tony-nyagah/hng14/backend/backend-stage-1:latest
     restart: unless-stopped
     environment:
       - PORT=8060
@@ -39,6 +39,45 @@ services:
       - "traefik.http.routers.stage-1.entrypoints=websecure"
       - "traefik.http.routers.stage-1.tls.certresolver=letsencrypt"
       - "traefik.http.services.stage-1.loadbalancer.server.port=8060"
+  
+  backend-stage-2:
+    image: ghcr.io/tony-nyagah/hng14/backend/backend-stage-2:latest
+    restart: unless-stopped
+    environment:
+      - PORT=8070
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD:-postgres}
+      - DB_NAME=${DB_NAME:-hng14_stage2}
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.stage-2.rule=Host(`hng14.nyagah.me`) && PathPrefix(`/api/`)"
+      - "traefik.http.routers.stage-2.entrypoints=websecure"
+      - "traefik.http.routers.stage-2.tls.certresolver=letsencrypt"
+      - "traefik.http.services.stage-2.loadbalancer.server.port=8070"
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "${DB_USER:-postgres}"
+      POSTGRES_PASSWORD: "${DB_PASSWORD:-postgres}"
+      POSTGRES_DB: "${DB_NAME:-hng14_stage2}"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - web
+
+volumes:
+  pgdata:
 
 networks:
   web:
