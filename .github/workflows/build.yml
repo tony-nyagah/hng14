@@ -2,7 +2,7 @@ name: Build, Push & Deploy
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   build:
@@ -57,7 +57,9 @@ jobs:
             mkdir -p /root/traefik
             if [ -f /root/traefik/traefik.yml ]; then rm /root/traefik/traefik.yml; fi
             cp /root/hng14/traefik.yml /root/traefik/traefik.yml
-            touch /root/traefik/acme.json
+            # Ensure acme.json is a file, not a directory (Docker creates it as a dir if missing)
+            if [ -d /root/traefik/acme.json ]; then rm -rf /root/traefik/acme.json; fi
+            if [ ! -f /root/traefik/acme.json ]; then touch /root/traefik/acme.json; fi
             chmod 600 /root/traefik/acme.json
             docker compose -f docker-compose.prod.yml pull
             docker compose -f docker-compose.prod.yml up -d --force-recreate

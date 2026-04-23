@@ -649,7 +649,7 @@ func searchProfiles(c *gin.Context) {
 
 	f, ok := parseNLQ(q)
 	if !ok {
-		c.JSON(http.StatusOK, gin.H{"status": "error", "message": "Unable to interpret query"})
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Unable to interpret query"})
 		return
 	}
 
