@@ -30,7 +30,7 @@ jobs:
         with:
           context: ./backend/${{ matrix.service }}
           push: true
-          tags: ghcr.io/tony-nyagah/hng14/${{ matrix.service }}:latest
+          tags: ghcr.io/tony-nyagah/hng14/backend/${{ matrix.service }}:latest
 
   deploy:
     needs: build
