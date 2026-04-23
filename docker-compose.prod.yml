@@ -13,7 +13,7 @@ services:
       - web
 
   backend-stage-0:
-    image: ghcr.io/tony-nyagah/hng14/backend/backend-stage-0:latest
+    build: ./backend/stage-0
     restart: unless-stopped
     environment:
       - PORT=8059
