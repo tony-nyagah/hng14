@@ -1,4 +1,4 @@
-# HNG14
+# HNG14 Solutions
 
 My solutions to the [HNG14](https://hng.tech) internship tasks, organized by track and stage.
 
