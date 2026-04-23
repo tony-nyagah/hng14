@@ -291,7 +291,8 @@ func applySortPagination(q *gorm.DB, f ProfileFilters) *gorm.DB {
 	if strings.ToLower(f.Order) == "desc" {
 		order = "desc"
 	}
-	q = q.Order(fmt.Sprintf("%s %s", sortBy, order))
+	// Secondary sort by id ensures stable, deterministic pagination
+	q = q.Order(fmt.Sprintf("%s %s, id asc", sortBy, order))
 
 	page := f.Page
 	if page < 1 {
@@ -507,7 +508,14 @@ func parseNLQ(q string) (ProfileFilters, bool) {
 
 func createProfile(c *gin.Context) {
 	var body struct {
-		Name string `json:"name" binding:"required"`
+		Name               string   `json:"name" binding:"required"`
+		Gender             *string  `json:"gender"`
+		GenderProbability  *float64 `json:"gender_probability"`
+		Age                *int     `json:"age"`
+		AgeGroup           *string  `json:"age_group"`
+		CountryID          *string  `json:"country_id"`
+		CountryName        *string  `json:"country_name"`
+		CountryProbability *float64 `json:"country_probability"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "name is required"})
@@ -527,58 +535,103 @@ func createProfile(c *gin.Context) {
 		return
 	}
 
-	// Call all three APIs concurrently
 	var (
-		gr GenderizeResponse
-		ar AgifyResponse
-		nr NationalizeResponse
-		wg sync.WaitGroup
+		gender      string
+		genderProb  float64
+		age         int
+		ageGroup    string
+		countryID   string
+		countryName string
+		countryProb float64
 	)
 
-	fetch := func(url string, target any) {
-		defer wg.Done()
-		_ = fetchJSON(url, target) // ignore errors; proceed with whatever data we got
-	}
+	// If any profile attribute is provided in the body, use it directly and skip
+	// external API calls. This allows the caller to seed profiles with known data.
+	hasFullData := body.Gender != nil || body.CountryID != nil || body.Age != nil
 
-	wg.Add(3)
-	go fetch(fmt.Sprintf("https://api.genderize.io?name=%s", name), &gr)
-	go fetch(fmt.Sprintf("https://api.agify.io?name=%s", name), &ar)
-	go fetch(fmt.Sprintf("https://api.nationalize.io?name=%s", name), &nr)
-	wg.Wait()
-	// Continue even if external APIs fail — create profile with available data
-
-	// Pick top country
-	top := NationalizeCountry{}
-	for _, ct := range nr.Country {
-		if ct.Probability > top.Probability {
-			top = ct
+	if hasFullData {
+		if body.Gender != nil {
+			gender = *body.Gender
 		}
-	}
+		if body.GenderProbability != nil {
+			genderProb = *body.GenderProbability
+		}
+		if body.Age != nil {
+			age = *body.Age
+		}
+		if body.AgeGroup != nil && *body.AgeGroup != "" {
+			ageGroup = *body.AgeGroup
+		} else {
+			ageGroup = classifyAge(age)
+		}
+		if body.CountryID != nil {
+			countryID = strings.ToUpper(*body.CountryID)
+		}
+		if body.CountryName != nil && *body.CountryName != "" {
+			countryName = *body.CountryName
+		} else if countryID != "" {
+			countryName = countryCodeToName[countryID]
+			if countryName == "" {
+				countryName = countryID
+			}
+		}
+		if body.CountryProbability != nil {
+			countryProb = *body.CountryProbability
+		}
+	} else {
+		// Call all three APIs concurrently
+		var (
+			gr GenderizeResponse
+			ar AgifyResponse
+			nr NationalizeResponse
+			wg sync.WaitGroup
+		)
 
-	gender := ""
-	if gr.Gender != nil {
-		gender = *gr.Gender
-	}
-	age := 0
-	if ar.Age != nil {
-		age = *ar.Age
-	}
+		fetch := func(url string, target any) {
+			defer wg.Done()
+			_ = fetchJSON(url, target) // ignore errors; proceed with whatever data we got
+		}
 
-	countryName := countryCodeToName[top.CountryID]
-	if countryName == "" {
-		countryName = top.CountryID
+		wg.Add(3)
+		go fetch(fmt.Sprintf("https://api.genderize.io?name=%s", name), &gr)
+		go fetch(fmt.Sprintf("https://api.agify.io?name=%s", name), &ar)
+		go fetch(fmt.Sprintf("https://api.nationalize.io?name=%s", name), &nr)
+		wg.Wait()
+
+		// Pick top country
+		top := NationalizeCountry{}
+		for _, ct := range nr.Country {
+			if ct.Probability > top.Probability {
+				top = ct
+			}
+		}
+
+		if gr.Gender != nil {
+			gender = *gr.Gender
+		}
+		genderProb = gr.Probability
+		if ar.Age != nil {
+			age = *ar.Age
+		}
+		countryID = top.CountryID
+		countryName = countryCodeToName[top.CountryID]
+		if countryName == "" {
+			countryName = top.CountryID
+		}
+		countryProb = top.Probability
+		ageGroup = classifyAge(age)
 	}
 
 	p := Profile{
 		ID:                 newUUID(),
 		Name:               name,
 		Gender:             gender,
-		GenderProbability:  gr.Probability,
+		GenderProbability:  genderProb,
 		Age:                age,
-		AgeGroup:           classifyAge(age),
-		CountryID:          top.CountryID,
+		AgeGroup:           ageGroup,
+		CountryID:          countryID,
 		CountryName:        countryName,
-		CountryProbability: top.Probability,
+		CountryProbability: countryProb,
 		CreatedAt:          time.Now().UTC(),
 	}
 
