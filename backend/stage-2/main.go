@@ -309,7 +309,12 @@ func applySortPagination(q *gorm.DB, f ProfileFilters) *gorm.DB {
 	return q
 }
 
-func parseQueryFilters(c *gin.Context) (ProfileFilters, bool) {
+// parseQueryFilters returns (filters, errCode) where errCode is:
+//
+//	0   — valid
+//	400 — missing / empty required parameter
+//	422 — invalid parameter type or value
+func parseQueryFilters(c *gin.Context) (ProfileFilters, int) {
 	f := ProfileFilters{
 		SortBy: c.Query("sort_by"),
 		Order:  c.Query("order"),
@@ -319,14 +324,14 @@ func parseQueryFilters(c *gin.Context) (ProfileFilters, bool) {
 
 	if v := c.Query("gender"); v != "" {
 		if v != "male" && v != "female" {
-			return f, false
+			return f, http.StatusUnprocessableEntity
 		}
 		f.Gender = &v
 	}
 	if v := c.Query("age_group"); v != "" {
 		valid := map[string]bool{"child": true, "teenager": true, "adult": true, "senior": true}
 		if !valid[v] {
-			return f, false
+			return f, http.StatusUnprocessableEntity
 		}
 		f.AgeGroup = &v
 	}
@@ -337,57 +342,57 @@ func parseQueryFilters(c *gin.Context) (ProfileFilters, bool) {
 	if v := c.Query("min_age"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			return f, false
+			return f, http.StatusUnprocessableEntity
 		}
 		f.MinAge = &n
 	}
 	if v := c.Query("max_age"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			return f, false
+			return f, http.StatusUnprocessableEntity
 		}
 		f.MaxAge = &n
 	}
 	if v := c.Query("min_gender_probability"); v != "" {
 		fv, err := strconv.ParseFloat(v, 64)
 		if err != nil {
-			return f, false
+			return f, http.StatusUnprocessableEntity
 		}
 		f.MinGenderProbability = &fv
 	}
 	if v := c.Query("min_country_probability"); v != "" {
 		fv, err := strconv.ParseFloat(v, 64)
 		if err != nil {
-			return f, false
+			return f, http.StatusUnprocessableEntity
 		}
 		f.MinCountryProbability = &fv
 	}
 	if v := c.Query("sort_by"); v != "" {
 		valid := map[string]bool{"age": true, "created_at": true, "gender_probability": true}
 		if !valid[v] {
-			return f, false
+			return f, http.StatusUnprocessableEntity
 		}
 	}
 	if v := c.Query("order"); v != "" {
 		if v != "asc" && v != "desc" {
-			return f, false
+			return f, http.StatusUnprocessableEntity
 		}
 	}
 	if v := c.Query("page"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 {
-			return f, false
+			return f, http.StatusUnprocessableEntity
 		}
 		f.Page = n
 	}
 	if v := c.Query("limit"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 {
-			return f, false
+			return f, http.StatusUnprocessableEntity
 		}
 		f.Limit = n
 	}
-	return f, true
+	return f, 0
 }
 
 // ── NLQ Parser ────────────────────────────────────────────────────────────────
@@ -650,9 +655,9 @@ func createProfile(c *gin.Context) {
 }
 
 func listProfiles(c *gin.Context) {
-	f, valid := parseQueryFilters(c)
-	if !valid {
-		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Invalid query parameters"})
+	f, errCode := parseQueryFilters(c)
+	if errCode != 0 {
+		c.JSON(errCode, gin.H{"status": "error", "message": "Invalid query parameters"})
 		return
 	}
 
@@ -691,6 +696,7 @@ func listProfiles(c *gin.Context) {
 func searchProfiles(c *gin.Context) {
 	q := c.Query("q")
 	if strings.TrimSpace(q) == "" {
+		// missing / empty parameter → 400
 		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Invalid query parameters"})
 		return
 	}
@@ -705,7 +711,7 @@ func searchProfiles(c *gin.Context) {
 	if v := c.Query("page"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 {
-			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Invalid query parameters"})
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"status": "error", "message": "Invalid query parameters"})
 			return
 		}
 		f.Page = n
@@ -713,7 +719,7 @@ func searchProfiles(c *gin.Context) {
 	if v := c.Query("limit"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 {
-			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Invalid query parameters"})
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"status": "error", "message": "Invalid query parameters"})
 			return
 		}
 		f.Limit = n
