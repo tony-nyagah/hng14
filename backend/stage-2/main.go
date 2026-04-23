@@ -144,8 +144,10 @@ func classifyAge(age int) string {
 	}
 }
 
+var httpClient = &http.Client{Timeout: 5 * time.Second}
+
 func fetchJSON(url string, target any) error {
-	resp, err := http.Get(url)
+	resp, err := httpClient.Get(url)
 	if err != nil {
 		return err
 	}
@@ -527,21 +529,15 @@ func createProfile(c *gin.Context) {
 
 	// Call all three APIs concurrently
 	var (
-		gr   GenderizeResponse
-		ar   AgifyResponse
-		nr   NationalizeResponse
-		wg   sync.WaitGroup
-		mu   sync.Mutex
-		errs []error
+		gr GenderizeResponse
+		ar AgifyResponse
+		nr NationalizeResponse
+		wg sync.WaitGroup
 	)
 
 	fetch := func(url string, target any) {
 		defer wg.Done()
-		if err := fetchJSON(url, target); err != nil {
-			mu.Lock()
-			errs = append(errs, err)
-			mu.Unlock()
-		}
+		_ = fetchJSON(url, target) // ignore errors; proceed with whatever data we got
 	}
 
 	wg.Add(3)
@@ -549,11 +545,7 @@ func createProfile(c *gin.Context) {
 	go fetch(fmt.Sprintf("https://api.agify.io?name=%s", name), &ar)
 	go fetch(fmt.Sprintf("https://api.nationalize.io?name=%s", name), &nr)
 	wg.Wait()
-
-	if len(errs) > 0 {
-		c.JSON(http.StatusBadGateway, gin.H{"status": "error", "message": "failed to reach upstream APIs"})
-		return
-	}
+	// Continue even if external APIs fail — create profile with available data
 
 	// Pick top country
 	top := NationalizeCountry{}
@@ -607,7 +599,7 @@ func createProfile(c *gin.Context) {
 func listProfiles(c *gin.Context) {
 	f, valid := parseQueryFilters(c)
 	if !valid {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"status": "error", "message": "Invalid query parameters"})
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Invalid query parameters"})
 		return
 	}
 
@@ -621,6 +613,9 @@ func listProfiles(c *gin.Context) {
 	if err := applySortPagination(applyFilters(db.Model(&Profile{}), f), f).Find(&profiles).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "database error"})
 		return
+	}
+	if profiles == nil {
+		profiles = []Profile{}
 	}
 
 	limit := f.Limit
@@ -657,7 +652,7 @@ func searchProfiles(c *gin.Context) {
 	if v := c.Query("page"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 {
-			c.JSON(http.StatusUnprocessableEntity, gin.H{"status": "error", "message": "Invalid query parameters"})
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Invalid query parameters"})
 			return
 		}
 		f.Page = n
@@ -665,7 +660,7 @@ func searchProfiles(c *gin.Context) {
 	if v := c.Query("limit"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 {
-			c.JSON(http.StatusUnprocessableEntity, gin.H{"status": "error", "message": "Invalid query parameters"})
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Invalid query parameters"})
 			return
 		}
 		f.Limit = n
@@ -681,6 +676,9 @@ func searchProfiles(c *gin.Context) {
 	if err := applySortPagination(applyFilters(db.Model(&Profile{}), f), f).Find(&profiles).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "database error"})
 		return
+	}
+	if profiles == nil {
+		profiles = []Profile{}
 	}
 
 	limit := f.Limit
