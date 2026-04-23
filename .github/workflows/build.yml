@@ -2,7 +2,7 @@ name: Build, Push & Deploy
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
 
 jobs:
   build:
@@ -13,7 +13,7 @@ jobs:
 
     strategy:
       matrix:
-        service: [stage-0, stage-1]
+        service: [ stage-0, stage-1, stage-2 ]
 
     steps:
       - uses: actions/checkout@v4
