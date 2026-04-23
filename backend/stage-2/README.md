@@ -1,6 +1,6 @@
 # Stage 2 Backend — Intelligence Query Engine
 
-A queryable demographic intelligence API built with **Go**, **Gin**, **GORM**, and **PostgreSQL**. Seeded with 2026 profiles, it supports advanced filtering, sorting, pagination, and a rule-based natural language query interface.
+A queryable demographic intelligence API built with **Go** (standard library `net/http`) and **SQLite**. Auto-seeded with 2026 profiles on startup, it supports advanced filtering, sorting, pagination, and a rule-based natural language query interface.
 
 ---
 
@@ -8,83 +8,63 @@ A queryable demographic intelligence API built with **Go**, **Gin**, **GORM**, a
 
 | Component | Technology |
 |-----------|-----------|
-| Language  | Go 1.24   |
-| Framework | Gin       |
-| ORM       | GORM      |
-| Database  | PostgreSQL 16 |
-| Container | Docker (multi-stage, non-root) |
+| Language  | Go 1.26   |
+| HTTP      | `net/http` (standard library) |
+| Database  | SQLite (file: `insighta.db`) |
+| Container | Docker (multi-stage) |
 
 ---
 
 ## Quick Start
 
-### With Docker Compose
+### With Docker
 
 ```bash
-cp .env.example .env
-docker compose up --build
+docker build -t insighta-api .
+docker run -p 8070:8070 insighta-api
 ```
 
-The API will be available at `http://localhost:8060`.
+The API will be available at `http://localhost:8070`.
 
-### Locally (requires PostgreSQL running)
+### Locally
 
 ```bash
-cp .env.example .env
-# edit .env with your DB credentials
 go run .
 ```
+
+Requires `seed.json` in the working directory — auto-seeded on first run.
 
 ---
 
 ## Environment Variables
 
-| Variable      | Default        | Description              |
-|---------------|----------------|--------------------------|
-| `DB_HOST`     | `localhost`    | PostgreSQL host          |
-| `DB_PORT`     | `5432`         | PostgreSQL port          |
-| `DB_USER`     | `postgres`     | Database user            |
-| `DB_PASSWORD` | `postgres`     | Database password        |
-| `DB_NAME`     | `hng14_stage2` | Database name            |
-| `PORT`        | `8060`         | API listen port          |
-| `DATABASE_URL`| —              | Full DSN (overrides above)|
-| `SEED_FILE`   | `seed_profiles.json` | Path to seed data  |
+| Variable | Default | Description         |
+|----------|---------|---------------------|
+| `PORT`   | `8070`  | API listen port     |
 
 ---
 
 ## Endpoints
 
-### `POST /api/profiles`
-
-Create a profile (idempotent by name — returns existing if found).
-
-```json
-{ "name": "ella" }
-```
-
-Returns `201` on creation, `200` if already exists.
-
----
-
 ### `GET /api/profiles`
 
-List profiles with optional filtering, sorting, and pagination.
+List profiles with optional filtering, sorting, and pagination. All filter params are combinable — results match **all** provided conditions.
 
-**Filter params:**
+**Query parameters:**
 
-| Param                   | Example           |
-|-------------------------|-------------------|
-| `gender`                | `male` / `female` |
-| `age_group`             | `adult`           |
-| `country_id`            | `NG`              |
-| `min_age`               | `25`              |
-| `max_age`               | `40`              |
-| `min_gender_probability`| `0.8`             |
-| `min_country_probability`| `0.5`            |
-| `sort_by`               | `age` / `created_at` / `gender_probability` |
-| `order`                 | `asc` / `desc`    |
-| `page`                  | `1`               |
-| `limit`                 | `10` (max `50`)   |
+| Param                    | Example           | Description                          |
+|--------------------------|-------------------|--------------------------------------|
+| `gender`                 | `male` / `female` | Filter by gender                     |
+| `age_group`              | `adult`           | `child`, `teenager`, `adult`, `senior` |
+| `country_id`             | `NG`              | ISO 2-letter country code            |
+| `min_age`                | `25`              | Minimum age (inclusive)              |
+| `max_age`                | `40`              | Maximum age (inclusive)              |
+| `min_gender_probability` | `0.8`             | Minimum gender confidence score      |
+| `min_country_probability`| `0.5`             | Minimum country confidence score     |
+| `sort_by`                | `age`             | `age` / `created_at` / `gender_probability` |
+| `order`                  | `desc`            | `asc` / `desc` (default: `desc`)     |
+| `page`                   | `1`               | Page number (default: `1`)           |
+| `limit`                  | `10`              | Results per page (default: `10`, max: `50`) |
 
 **Example:** `GET /api/profiles?gender=male&country_id=NG&min_age=25&sort_by=age&order=desc`
 
@@ -103,49 +83,33 @@ List profiles with optional filtering, sorting, and pagination.
 
 ### `GET /api/profiles/search?q=<query>`
 
-Natural language query. Rule-based — no AI or LLMs.
+Natural language query converted to structured filters. Rule-based — no AI or LLMs. Supports `page` and `limit` for pagination.
 
 **Examples:**
 
 | Query | Interpreted as |
 |-------|---------------|
 | `young males from nigeria` | `gender=male`, `min_age=16`, `max_age=24`, `country_id=NG` |
-| `females above 30` | `gender=female`, `min_age=30` |
+| `females above 30` | `gender=female`, `min_age=31` |
 | `people from angola` | `country_id=AO` |
 | `adult males from kenya` | `gender=male`, `age_group=adult`, `country_id=KE` |
-| `male and female teenagers above 17` | `age_group=teenager`, `min_age=17` |
+| `teenagers above 17` | `age_group=teenager`, `min_age=18` |
 
-Uninterpretable queries return:
+Uninterpretable queries return `400`:
 ```json
 { "status": "error", "message": "Unable to interpret query" }
 ```
-
-Supports `page` and `limit` query params for pagination.
-
----
-
-### `GET /api/profiles/:id`
-
-Get a single profile by UUID. Returns `404` if not found.
-
----
-
-### `DELETE /api/profiles/:id`
-
-Delete a profile by UUID. Returns `404` if not found.
 
 ---
 
 ## NLQ Parsing Rules
 
-The natural language parser uses regex-based rules:
+The parser uses keyword matching on the lowercased query string:
 
-- **Gender:** keywords like `male`, `males`, `men`, `female`, `females`, `women`
-- **Age groups:** `child/children`, `teenager/teen`, `adult`, `senior/elderly`
-- **"young":** maps to `min_age=16`, `max_age=24` (not a stored age group)
-- **Age ranges:** `above N` → `min_age`, `below N` → `max_age`, `between N and M`
-- **Country:** `from <country name>` → ISO-2 code lookup (65+ countries supported)
-- **Both genders:** `male and female ...` → no gender filter applied
+- **Gender:** `female` → `gender=female`; `male` → `gender=male` (female checked first)
+- **Age groups:** `young` → `min_age=16, max_age=24`; `teenager` → `age_group=teenager`; `adult` → `age_group=adult`
+- **Age ranges:** `above N` → `min_age=N+1`
+- **Country:** keyword lookup against a built-in map (Nigeria, Kenya, Angola, Benin supported)
 
 If no recognizable tokens are found, returns `Unable to interpret query`.
 
@@ -154,27 +118,27 @@ If no recognizable tokens are found, returns `Unable to interpret query`.
 ## Database Schema
 
 ```sql
-CREATE TABLE profiles (
-  id                  VARCHAR(36) PRIMARY KEY,
-  name                VARCHAR(255) UNIQUE NOT NULL,
-  gender              VARCHAR(10),
-  gender_probability  FLOAT,
-  age                 INT,
-  age_group           VARCHAR(20),
-  country_id          VARCHAR(2),
-  country_name        VARCHAR(100),
-  country_probability FLOAT,
-  created_at          TIMESTAMPTZ
+CREATE TABLE IF NOT EXISTS profiles (
+  id                  TEXT PRIMARY KEY,
+  name                TEXT UNIQUE,
+  gender              TEXT,
+  gender_probability  REAL,
+  age                 INTEGER,
+  age_group           TEXT,
+  country_id          TEXT,
+  country_name        TEXT,
+  country_probability REAL,
+  created_at          TIMESTAMP
 );
+CREATE INDEX IF NOT EXISTS idx_profiles_filters
+  ON profiles(gender, age, country_id, age_group);
 ```
-
-Indexes on: `gender`, `age`, `age_group`, `country_id`, `gender_probability`, `country_probability`, `created_at` — ensures efficient filtering without full-table scans.
 
 ---
 
 ## Data Seeding
 
-The app auto-seeds on startup from `seed_profiles.json` (2026 profiles). Re-running is idempotent — uses `ON CONFLICT (name) DO NOTHING`.
+The app auto-seeds on startup from `seed.json` (2026 profiles). Uses `INSERT OR IGNORE` — re-running is idempotent (no duplicates by `name`).
 
 ---
 
@@ -185,9 +149,7 @@ All errors follow:
 { "status": "error", "message": "<message>" }
 ```
 
-| Code | Meaning |
-|------|---------|
-| `400` | Missing/empty required param |
-| `404` | Profile not found |
-| `422` | Invalid param type/value |
-| `502` | Upstream API failure |
+| Code | Meaning                          |
+|------|----------------------------------|
+| `400` | Missing/empty param or uninterpretable NLQ query |
+| `500` | Server/database failure          |
