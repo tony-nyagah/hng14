@@ -43,6 +43,9 @@ func main() {
 		r.Use(middleware.RateLimit(60, middleware.UserKey))
 		r.Use(middleware.RequireAPIVersion)
 
+		// Auth: current user info
+		r.Get("/auth/me", auth.HandleMe)
+
 		// Analyst + admin: read
 		r.Get("/api/profiles", profiles.ListProfiles)
 		r.Get("/api/profiles/search", profiles.SearchProfiles)

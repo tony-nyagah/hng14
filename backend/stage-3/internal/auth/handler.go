@@ -313,6 +313,27 @@ func upsertUser(gh *githubUser) (*models.User, error) {
 	return u, err
 }
 
+// HandleMe returns the currently authenticated user's profile.
+func HandleMe(w http.ResponseWriter, r *http.Request) {
+	u, ok := r.Context().Value(models.ContextKeyUser).(*models.User)
+	if !ok || u == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status": "success",
+		"user": map[string]interface{}{
+			"id":            u.ID,
+			"username":      u.Username,
+			"email":         u.Email,
+			"avatar_url":    u.AvatarURL,
+			"role":          u.Role,
+			"last_login_at": u.LastLoginAt,
+		},
+	})
+}
+
 func writeError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
