@@ -1,0 +1,80 @@
+name: CI
+
+on:
+    push:
+        branches: [ main ]
+    pull_request:
+        branches: [ main ]
+
+jobs:
+    # ── Backend ──────────────────────────────────────────────────────────────────
+    backend:
+        name: Backend (stage-3)
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: backend/stage-3
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-go@v5
+              with:
+                  go-version-file: backend/stage-3/go.mod
+                  cache: true
+
+            - name: Install gcc (for CGO sqlite3)
+              run: sudo apt-get install -y gcc
+
+            - name: go vet
+              run: go vet ./...
+
+            - name: go build
+              run: CGO_ENABLED=1 go build -o /dev/null ./cmd/server
+
+            - name: go test
+              run: CGO_ENABLED=1 go test ./...
+
+    # ── CLI ───────────────────────────────────────────────────────────────────────
+    cli:
+        name: CLI (stage-3)
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: cli/stage-3
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-go@v5
+              with:
+                  go-version-file: cli/stage-3/go.mod
+                  cache: true
+
+            - name: go vet
+              run: go vet ./...
+
+            - name: go build
+              run: go build -o /dev/null ./...
+
+    # ── Web Portal ────────────────────────────────────────────────────────────────
+    web:
+        name: Web Portal (stage-3)
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: web/stage-3
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-go@v5
+              with:
+                  go-version-file: web/stage-3/go.mod
+                  cache: true
+
+            - name: go vet
+              run: go vet ./...
+
+            - name: go build
+              run: go build -o /dev/null ./cmd
