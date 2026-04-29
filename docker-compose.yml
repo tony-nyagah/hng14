@@ -22,6 +22,44 @@ services:
     networks:
       - hng14
 
+  # ── Stage 3 ───────────────────────────────────────────────────────────────────
+  insighta-backend:
+    build: ./backend/stage-3
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - DB_PATH=/data/insighta.db
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+      - GITHUB_REDIRECT_URI=${GITHUB_REDIRECT_URI:-http://localhost:8080/auth/github/callback}
+      - JWT_SECRET=${JWT_SECRET}
+    volumes:
+      - insighta-db:/data
+    networks:
+      - hng14
+
+  insighta-web:
+    build: ./web/stage-3
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - WEB_PORT=3000
+      - ENV=development
+      - INSIGHTA_API_URL=http://insighta-backend:8080
+      - SESSION_HASH_KEY=${SESSION_HASH_KEY}
+      - SESSION_BLOCK_KEY=${SESSION_BLOCK_KEY}
+      - CSRF_AUTH_KEY=${CSRF_AUTH_KEY}
+    depends_on:
+      - insighta-backend
+    networks:
+      - hng14
+
+volumes:
+  insighta-db:
+
 networks:
   hng14:
     driver: bridge
